@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kaboom! - The Bomb Catcher</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #111827; color: #f9fafb; }
+        /* Custom styles for the game area */
+        #game-area {
+            position: relative;
+            width: 100%;
+            /* Fixed width for logic consistency, use max-width to keep it centered and readable */
+            max-width: 400px;
+            height: 600px;
+            /* --- Background Image Update --- */
+            background-image: url('https://static.wixstatic.com/media/a683d1_555317e50aa146fbb6f6f57588801e98fa~mv2.gif');
+            background-size: cover; /* Ensures perfect fit with 400x600 image */
+            background-repeat: no-repeat;
+            /* -------------------------------- */
+            border: 4px solid #fcd34d;
+            box-shadow: 0 0 25px rgba(252, 211, 77, 0.8);
+            overflow: hidden;
+            margin: auto;
+            touch-action: none; /* Prevent scrolling on touch devices while playing */
+        }
+        .mad-bomber-img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 50px; /* Adjusted size for visibility */
+            height: 50px;
+            z-index: 100;
+        }
+        .bucket-stack {
+            position: absolute;
+            bottom: 0;
+            left: 50%; /* Initial position, will be overridden by JS */
+            width: 80px;
+            height: 60px; 
+            display: flex;
+            flex-direction: column-reverse;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 2px;
+            z-index: 90;
+        }
+        .bucket-img {
+            width: 50px;
+            height: 20px;
+        }
+        .bomb-img {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            z-index: 50;
+            transition: opacity 0.1s; /* smooth removal effect */
+        }
+        .explosion-img {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            opacity: 0;
+            animation: explode 0.5s ease-out forwards;
+            z-index: 200;
+        }
+        @keyframes explode {
+            0% { transform: scale(0.1); opacity: 1; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+        .game-status-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.9);
+            backdrop-filter: blur(2px);
+            z-index: 300;
+            transition: opacity 0.3s;
+        }
+    </style>
+    <!-- Firebase SDK Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Ensure setLogLevel is called for debugging
+        setLogLevel('Debug');
+
+        // --- GLOBAL CONSTANTS (Image Assets) ---
+        const IMAGE_URLS = {
+            // Reverting to the user's original URL for the bomber
+            BOMBER: 'https://kevindkeene.github.io/kaboom-game-assets/root/bomber336x800.gif',
+            BOMB: 'https://placehold.co/20x20/808080/ffffff?text=B',
+            BUCKET: 'https://placehold.co/50x20/007bff/ffffff?text=CATCH',
+            EXPLOSION: 'https://placehold.co/80x80/ff8c00/ffffff?text=BOOM!'
+        };
+        
+        // --- GLOBAL CONSTANTS (Difficulty Settings) ---
+        const DIFFICULTY_SETTINGS = {
+            EASY: {
+                baseBombSpeed: 2.0,     // Slower start
+                initialDropInterval: 120, // Less frequent
+                initialBomberSpeed: 1.0,  // Slower bomber
+            },
+            MEDIUM: {
+                baseBombSpeed: 2.5,     // Standard start
+                initialDropInterval: 100,
+                initialBomberSpeed: 1.5,
+            },
+            HARD: {
+                baseBombSpeed: 3.2,     // Faster start
+                initialDropInterval: 70,  // More frequent
+                initialBomberSpeed: 2.0,  // Faster bomber
+            }
+        };
+        
+        // Global variables provided by the environment (MUST be used)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // --- GAME STATE ---
+        let score = 0;
+        let lives = 3;
+        let highscore = 0;
+        let isGameOver = true;
+        let isGamePaused = true;
+        let frame = 0;
+        let bombs = [];
+        let bucketElements = [];
+        let currentDifficulty = 'MEDIUM'; // Default
+
+        // Game element parameters
+        const GAME_AREA_WIDTH = 400; // Hardcoded based on max-w-[400px] for consistent logic
+        const GAME_AREA_HEIGHT = 600;
+        const BUCKET_WIDTH = 50; 
+        const BUCKET_STACK_WIDTH = 80; 
+        const BUCKET_HEIGHT = 20;
+        const BOMB_SIZE = 20;
+        const BUCKET_COLLISION_HEIGHT = 60; // Total height of the stack element
+
+        // Dynamic game variables (initial values are overwritten in startGame)
+        let bucketX = (GAME_AREA_WIDTH / 2) - (BUCKET_STACK_WIDTH / 2); 
+        let bombDropInterval = 100;
+        let baseBombSpeed = 2.5;
+        let speedMultiplier = 1;
+        let madBomberX = 0;
+        let madBomberDirection = 1;
+        let madBomberSpeed = 1.5;
+
+        // Firebase references
+        let db;
+        let auth;
+        let userId;
+        let highscoreRef;
+
+        // --- Firebase Initialization and Auth ---
+        function getHighscoreDocRef(dbInstance, uid) {
+            // Using private data path structure for user-specific highscores
+            const collectionPath = `/artifacts/${appId}/users/${uid}/highscores`;
+            return doc(dbInstance, collectionPath, 'kaboom-score');
+        }
+
+        async function initFirebase() {
+            if (Object.keys(firebaseConfig).length === 0) {
+                 console.error("Firebase config is missing. High scores will not be saved.");
+                 document.getElementById('user-id-display').textContent = 'Firebase Error: Config Missing';
+                 return;
+            }
+
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // Authentication
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        highscoreRef = getHighscoreDocRef(db, userId);
+                        document.getElementById('user-id-display').textContent = userId;
+                        setupHighscoreListener();
+                    } else {
+                         // Sign in anonymously if no user is signed in
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error("Firebase Initialization or Auth failed:", error);
+                document.getElementById('user-id-display').textContent = 'Firebase Error: Auth Failed';
+            }
+        }
+
+        function setupHighscoreListener() {
+            if (!highscoreRef) return;
+
+            onSnapshot(highscoreRef, (doc) => {
+                if (doc.exists()) {
+                    // Ensure the highscore is treated as a number
+                    highscore = Number(doc.data().score) || 0; 
+                    document.getElementById('highscore-display').textContent = highscore;
+                }
+            }, (error) => {
+                console.error("Error listening to highscore:", error);
+            });
+        }
+
+        async function saveHighscore() {
+            if (!highscoreRef || score <= highscore) return;
+
+            try {
+                await setDoc(highscoreRef, { score: score, timestamp: new Date() }, { merge: true });
+                highscore = score; // Update local highscore immediately
+            } catch (error) {
+                console.error("Error saving high score:", error);
+            }
+        }
+
+        // --- Game Setup and Control ---
+
+        function initGameElements() {
+            const bucketsContainer = document.getElementById('buckets-stack');
+            bucketsContainer.innerHTML = '';
+            bucketElements = [];
+
+            // Initialize the three visual bucket elements
+            for (let i = 0; i < 3; i++) {
+                const bucket = document.createElement('img');
+                bucket.src = IMAGE_URLS.BUCKET;
+                bucket.classList.add('bucket-img');
+                bucketsContainer.appendChild(bucket);
+                bucketElements.push(bucket);
+            }
+            document.getElementById('mad-bomber-img').style.display = 'block';
+        }
+
+        function startGame(difficultyLevel) {
+            if (!isGameOver && !isGamePaused) return;
+
+            // Apply difficulty settings
+            currentDifficulty = difficultyLevel;
+            const settings = DIFFICULTY_SETTINGS[currentDifficulty];
+
+            score = 0;
+            lives = 3;
+            isGameOver = false;
+            isGamePaused = false;
+            
+            // Set game parameters based on difficulty
+            baseBombSpeed = settings.baseBombSpeed;
+            bombDropInterval = settings.initialDropInterval;
+            madBomberSpeed = settings.initialBomberSpeed;
+
+            // Clear all existing bombs
+            bombs.forEach(b => b.element.remove());
+            bombs = [];
+
+            // Reset game parameters
+            bucketX = (GAME_AREA_WIDTH / 2) - (BUCKET_STACK_WIDTH / 2);
+            madBomberX = 0;
+            speedMultiplier = 1;
+
+            // Hide overlay
+            const overlay = document.getElementById('overlay');
+            overlay.style.opacity = 0;
+            setTimeout(() => {
+                overlay.classList.add('hidden');
+            }, 300);
+
+            initGameElements();
+            updateScoreDisplay();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function endGame() {
+            if (isGameOver) return;
+            isGameOver = true;
+            isGamePaused = true;
+            saveHighscore();
+
+            // Show the difficulty selection screen which handles Game Over messaging
+            showDifficultySelection(true); 
+            document.getElementById('mad-bomber-img').style.display = 'none';
+        }
+        
+        function showDifficultySelection(isGameOverState = false) {
+            const overlay = document.getElementById('overlay');
+            const message = document.getElementById('status-message');
+            const difficultyContainer = document.getElementById('difficulty-buttons');
+
+            // Show overlay elements
+            overlay.classList.remove('hidden');
+            overlay.style.opacity = 1;
+            difficultyContainer.classList.remove('hidden');
+            
+            if (isGameOverState) {
+                // Game Over screen - show score and then prompt for next game
+                message.innerHTML = `
+                    <p class="text-4xl font-extrabold mb-4 text-red-500">KABOOM! Game Over!</p>
+                    <p class="text-xl mb-2">Final Score: <span class="text-yellow-400">${score}</span></p>
+                    <p class="text-lg mb-8">High Score: <span class="text-yellow-400">${Math.max(highscore, score)}</span></p>
+                    <p class="text-xl font-bold text-gray-200">Select a Difficulty to Start Over</p>
+                `;
+            } else {
+                // Initial start screen
+                message.innerHTML = `
+                    <p class="text-5xl font-extrabold mb-4 text-yellow-400">KABOOM!</p>
+                    <p class="text-xl mb-3">Catch the bombs before they hit the ground!</p>
+                    <p class="text-sm mb-4">Control: Drag mouse or touch horizontally inside the game area.</p>
+                    <p class="text-lg font-bold text-gray-200">Select Difficulty:</p>
+                `;
+            }
+            
+            // Clear and generate difficulty buttons
+            difficultyContainer.innerHTML = '';
+            const difficulties = ['EASY', 'MEDIUM', 'HARD'];
+            const colorMap = {
+                EASY: 'bg-green-600 hover:bg-green-700',
+                MEDIUM: 'bg-yellow-600 hover:bg-yellow-700',
+                HARD: 'bg-red-600 hover:bg-red-700',
+            };
+
+            difficulties.forEach(level => {
+                const button = document.createElement('button');
+                button.textContent = level;
+                button.className = `${colorMap[level]} text-white font-bold py-3 px-8 rounded-full shadow-2xl transition duration-200 uppercase transform hover:scale-105 w-full md:w-auto`;
+                button.addEventListener('click', () => startGame(level));
+                difficultyContainer.appendChild(button);
+            });
+        }
+
+        // Mouse/Touch control for the paddle
+        function handleInput(event) {
+            if (isGameOver || isGamePaused) return;
+
+            // Determine X coordinate based on event type (mouse or touch)
+            const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+            const gameAreaRect = document.getElementById('game-area').getBoundingClientRect();
+            
+            let normalizedX = clientX - gameAreaRect.left;
+
+            // Calculate the new bucketX position, centered on the cursor/touch point
+            // We use GAME_AREA_WIDTH (400) for logic consistency regardless of window size
+            let newBucketX = normalizedX - BUCKET_STACK_WIDTH / 2;
+
+            // Clamp the bucket position within the game area boundaries (0 to 400 - 80)
+            bucketX = Math.max(0, Math.min(newBucketX, GAME_AREA_WIDTH - BUCKET_STACK_WIDTH));
+
+            // Immediately update the display position
+            document.getElementById('buckets-stack').style.left = `${bucketX}px`;
+        }
+
+        // --- Bomb Generation and Movement ---
+
+        function createBomb(x, y) {
+            const bombEl = document.createElement('img');
+            bombEl.src = IMAGE_URLS.BOMB;
+            bombEl.classList.add('bomb-img');
+            bombEl.style.left = `${x}px`;
+            bombEl.style.top = `${y}px`;
+            document.getElementById('game-area').appendChild(bombEl);
+
+            bombs.push({ x: x, y: y, element: bombEl, speed: baseBombSpeed * speedMultiplier });
+        }
+
+        function generateBomb() {
+            const minInterval = 10;
+            // Get base interval from current difficulty setting
+            const initialInterval = DIFFICULTY_SETTINGS[currentDifficulty].initialDropInterval;
+            
+            // Scaling logic: Reduce interval from base by 1 frame per 10 score points.
+            let newInterval = initialInterval - Math.floor(score / 10); 
+            bombDropInterval = Math.max(minInterval, newInterval);
+
+            if (frame % Math.floor(bombDropInterval) === 0) {
+                // Drop bomb from the middle of the bomber
+                const dropX = madBomberX + (document.getElementById('mad-bomber-img').offsetWidth / 2) - BOMB_SIZE / 2;
+                // Drop bomb just below the bomber image
+                createBomb(dropX, document.getElementById('mad-bomber-img').offsetHeight);
+            }
+        }
+
+        function moveBombs() {
+            for (let i = bombs.length - 1; i >= 0; i--) {
+                const bomb = bombs[i];
+                bomb.y += bomb.speed;
+                bomb.element.style.top = `${bomb.y}px`;
+
+                // Check for missed bomb (hits the bottom of the game area)
+                if (bomb.y + BOMB_SIZE > GAME_AREA_HEIGHT) {
+                    missBomb(i, bomb);
+                    continue;
+                }
+
+                // Check for collision with bucket
+                if (checkCollision(bomb)) {
+                    catchBomb(i, bomb);
+                    continue;
+                }
+            }
+        }
+
+        function moveBomber() {
+            const bomberWidth = document.getElementById('mad-bomber-img').offsetWidth;
+
+            madBomberX += madBomberDirection * madBomberSpeed * speedMultiplier;
+
+            if (madBomberX > GAME_AREA_WIDTH - bomberWidth || madBomberX < 0) {
+                madBomberDirection *= -1;
+                // Nudge it back into bounds to prevent sticking
+                madBomberX = Math.max(0, Math.min(madBomberX, GAME_AREA_WIDTH - bomberWidth));
+            }
+
+            document.getElementById('mad-bomber-img').style.left = `${madBomberX}px`;
+
+            // Gradually increase bomber speed based on its initial difficulty setting
+            const initialBomberSpeed = DIFFICULTY_SETTINGS[currentDifficulty].initialBomberSpeed;
+            const speedIncrease = Math.floor(score / 30) * 0.1;
+            
+            madBomberSpeed = initialBomberSpeed + speedIncrease;
+            madBomberSpeed = Math.min(madBomberSpeed, 6);
+        }
+
+        // --- Collision and Outcomes ---
+
+        function checkCollision(bomb) {
+            // The top of the catchable area (top of the highest bucket)
+            // Bucket stack starts at GAME_AREA_HEIGHT - BUCKET_COLLISION_HEIGHT
+            const bucketTop = GAME_AREA_HEIGHT - BUCKET_COLLISION_HEIGHT; 
+            
+            const bucketBottom = GAME_AREA_HEIGHT;
+            const bombBottom = bomb.y + BOMB_SIZE;
+
+            const bucketRight = bucketX + BUCKET_STACK_WIDTH;
+            const bombRight = bomb.x + BOMB_SIZE;
+
+            // 1. Vertical Check: Is the bomb touching the bucket zone?
+            if (bombBottom > bucketTop && bomb.y < bucketBottom) {
+                // 2. Horizontal Check: Is the bomb horizontally within the bucket's boundaries?
+                if (bombRight > bucketX && bomb.x < bucketRight) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function catchBomb(index, bomb) {
+            score++;
+            // Use a slight fade out effect before removal
+            bomb.element.style.opacity = 0; 
+            
+            // Immediately remove the bomb element from the DOM
+            setTimeout(() => {
+                bomb.element.remove();
+            }, 100); 
+            
+            bombs.splice(index, 1);
+
+            // Increase speed multiplier every 10 catches
+            if (score % 10 === 0) {
+                speedMultiplier += 0.05;
+                // Cap the speed increase
+                speedMultiplier = Math.min(speedMultiplier, 3.0); 
+            }
+
+            // Optional: Life earned every 1000 points
+            if (score > 0 && score % 1000 === 0 && lives < 3) {
+                lives++;
+                showTemporaryMessage("Extra Bucket!", "text-green-400");
+            }
+        }
+
+        function missBomb(index, bomb) {
+            lives--;
+
+            // Explosion effect where the bomb lands (at the bottom)
+            createExplosion(bomb.x, GAME_AREA_HEIGHT - 40);
+
+            // Remove the bomb
+            bomb.element.remove();
+            bombs.splice(index, 1);
+
+            // Important: Update visual life display immediately
+            updateScoreDisplay(); 
+
+            showTemporaryMessage("KABOOM!", "text-red-500");
+
+            if (lives <= 0) {
+                endGame();
+            } else {
+                // Pause briefly after a miss
+                isGamePaused = true;
+                // Immediately clear the screen of other bombs after a hit/miss
+                clearScreenOfBombs();
+
+                setTimeout(() => {
+                    isGamePaused = false;
+                }, 750);
+            }
+        }
+        
+        function clearScreenOfBombs() {
+             // Clear all remaining bombs (they "explode" in the process)
+            bombs.forEach(b => {
+                createExplosion(b.x, b.y);
+                b.element.remove();
+            });
+            bombs = [];
+        }
+
+        function createExplosion(x, y) {
+            const explosionEl = document.createElement('img');
+            explosionEl.src = IMAGE_URLS.EXPLOSION;
+            explosionEl.classList.add('explosion-img');
+            // Center the explosion on the bomb's position
+            explosionEl.style.left = `${x + BOMB_SIZE/2 - 40}px`; 
+            explosionEl.style.top = `${y + BOMB_SIZE/2 - 40}px`;
+            document.getElementById('game-area').appendChild(explosionEl);
+            // Clean up the explosion element after the animation
+            setTimeout(() => explosionEl.remove(), 600);
+        }
+
+        function showTemporaryMessage(text, colorClass) {
+            const messageEl = document.getElementById('temp-message');
+            messageEl.textContent = text;
+            // Set class names and ensure it's visible
+            messageEl.className = `absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-3xl font-extrabold p-3 rounded-lg z-20 transition-opacity duration-300 ${colorClass}`;
+            messageEl.style.opacity = 1;
+            messageEl.classList.remove('pointer-events-none');
+
+            setTimeout(() => {
+                messageEl.style.opacity = 0;
+                messageEl.classList.add('pointer-events-none');
+            }, 600);
+        }
+
+        // --- Update and Rendering ---
+
+        function updateScoreDisplay() {
+            document.getElementById('score-display').textContent = score;
+            // Display the maximum of the current highscore or current score
+            document.getElementById('highscore-display').textContent = Math.max(highscore, score);
+
+            // Visually update the number of buckets/lives
+            bucketElements.forEach((el, index) => {
+                // Buckets are displayed bottom-up, 0 is the lowest.
+                // If lives=1, only index 0 is visible. If lives=3, 0, 1, 2 are visible.
+                if (index < lives) {
+                    el.style.display = 'block';
+                } else {
+                    el.style.display = 'none';
+                }
+            });
+        }
+
+        // --- Game Loop ---
+
+        function gameLoop() {
+            if (isGameOver) return;
+
+            frame++;
+            if (!isGamePaused) {
+                moveBomber();
+                generateBomb();
+                moveBombs();
+                updateScoreDisplay(); // Update display every frame
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- Event Listeners and Initial Load ---
+        window.onload = function () {
+            // Initial Firebase setup
+            initFirebase();
+
+            // Set up game input listeners
+            const gameArea = document.getElementById('game-area');
+            
+            // Mouse Listener
+            gameArea.addEventListener('mousemove', handleInput);
+            
+            // Touch Listeners
+            gameArea.addEventListener('touchstart', (e) => {
+                 e.preventDefault(); // Prevent accidental scrolling
+                 handleInput(e);
+            });
+            gameArea.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                handleInput(e);
+            });
+
+            // Show the difficulty selection screen on load
+            showDifficultySelection(false); 
+            
+            // Initialize the game stack visuals immediately
+            initGameElements();
+            updateScoreDisplay();
+        };
+    </script>
+</head>
+<body class="p-4 flex flex-col items-center justify-center min-h-screen">
+
+    <div class="text-center mb-6">
+        <h1 class="text-5xl font-extrabold text-red-500 shadow-lg tracking-wider">KABOOM!</h1>
+    </div>
+
+    <div id="game-container" class="w-full flex flex-col items-center">
+        <!-- Scoreboard -->
+        <div class="w-full max-w-[400px] bg-gray-900 p-3 rounded-t-lg shadow-xl flex justify-between text-lg font-mono border-t-2 border-x-2 border-yellow-500">
+            <span>SCORE: <span id="score-display" class="text-green-400">0</span></span>
+            <span>HIGH SCORE: <span id="highscore-display" class="text-yellow-400">0</span></span>
+        </div>
+
+        <!-- The Game Area -->
+        <div id="game-area" class="w-full h-[600px] max-w-[400px] rounded-b-lg relative cursor-crosshair">
+            <!-- Mad Bomber Character (Image) -->
+            <img id="mad-bomber-img" class="mad-bomber-img" style="display: none;" alt="Mad Bomber">
+
+            <!-- Buckets (Player Controlled Stack) -->
+            <div id="buckets-stack" class="bucket-stack">
+                <!-- Bucket image elements are dynamically added by JavaScript -->
+            </div>
+
+            <!-- Temporary Message Overlay (e.g., "Bucket Lost!") -->
+            <div id="temp-message" class="transition-opacity duration-300 opacity-0 pointer-events-none"></div>
+
+            <!-- Start/Game Over Overlay -->
+            <div id="overlay" class="game-status-overlay hidden">
+                <div class="text-center p-6 rounded-lg">
+                    <!-- Status message (start screen or game over message) populated by JS -->
+                    <div id="status-message" class="mb-8"></div>
+                    
+                    <!-- Difficulty buttons populated by JS -->
+                    <div id="difficulty-buttons" class="flex flex-col md:flex-row justify-center items-center space-y-3 md:space-y-0 md:space-x-4">
+                        <!-- Buttons go here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- User ID Display (MANDATORY for multi-user/persistence apps) -->
+    <div class="mt-4 text-xs text-gray-500 w-full max-w-[400px] text-center">
+        <p>User ID: <span id="user-id-display">Initializing Firebase...</span></p>
+    </div>
+</body>
+</html>
