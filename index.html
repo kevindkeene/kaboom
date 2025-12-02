@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kaboom! - The Bomb Catcher</title>
-    <!-- Load Tailwind CSS -->
+    
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap');
@@ -13,58 +13,73 @@
         #game-area {
             position: relative;
             width: 100%;
-            /* Fixed width for logic consistency, use max-width to keep it centered and readable */
             max-width: 400px;
             height: 600px;
-            /* --- Background Image Update --- */
+            /* Note: Using an external GIF for the background */
             background-image: url('https://kevindkeene.github.io/kaboom/assets/kaboom-background.gif');
-            background-size: cover; /* Ensures perfect fit with 400x600 image */
+            background-size: cover;
             background-repeat: no-repeat;
-            /* -------------------------------- */
-            border: 4px solid #fcd34d;
-            box-shadow: 0 0 25px rgba(252, 211, 77, 0.8);
+            border: none; 
+            box-shadow: none; 
             overflow: hidden;
             margin: auto;
-            touch-action: none; /* Prevent scrolling on touch devices while playing */
+            touch-action: none; /* Prevents native scrolling/zooming */
+            cursor: crosshair;
+        }
+
+        /* NEW: Hide pointer during active gameplay */
+        #game-area.hide-pointer {
+            cursor: none !important;
         }
         .mad-bomber-img {
             position: absolute;
             top: 0;
             left: 0;
-            width: 50px; /* Adjusted size for visibility */
+            width: 21px; /* Bomber width */
             height: 50px;
             z-index: 100;
         }
         .bucket-stack {
             position: absolute;
-            bottom: 0;
+            /* Positioned using 'top' style in JS */
             left: 50%; /* Initial position, will be overridden by JS */
-            width: 80px;
-            height: 60px; 
+            width: 50px; 
+            height: 70px; /* Max height for all 3 buckets + gaps */
             display: flex;
-            flex-direction: column-reverse;
+            flex-direction: column-reverse; /* Stacks children from bottom up */
             align-items: center;
             justify-content: flex-start;
             gap: 2px;
             z-index: 90;
+            /* TEMPORARY DEBUG BORDER */
+            border: 1px dashed skyblue; 
+            box-shadow: none; 
+            transition: all 0.2s ease-out;
         }
         .bucket-img {
-            width: 50px;
+            width: 50px; 
             height: 20px;
+            box-shadow: none; 
+            transition: all 0.2s ease-out; 
+            /* NO BORDERS ARE APPLIED */
         }
         .bomb-img {
             position: absolute;
-            width: 20px;
-            height: 20px;
+            width: 15px; /* Bomb width */
+            height: 28px; /* Bomb height */
             z-index: 50;
             transition: opacity 0.1s; /* smooth removal effect */
         }
+        /* NEW: Splash Animation Style */
+        .splash-img {
+            position: absolute;
+            z-index: 250;
+            pointer-events: none; /* Ensure it doesn't interfere with input */
+        }
         .explosion-img {
             position: absolute;
-            width: 80px;
-            height: 80px;
-            opacity: 0;
-            animation: explode 0.5s ease-out forwards;
+            width: 80px; /* Display width of explosion - Scaled up */
+            height: 64px; /* Display height of explosion - Proportional to 80px width */
             z-index: 200;
         }
         @keyframes explode {
@@ -86,86 +101,84 @@
             transition: opacity 0.3s;
         }
     </style>
-    <!-- Firebase SDK Imports -->
+    
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
-        // Ensure setLogLevel is called for debugging
         setLogLevel('Debug');
 
-        // --- GLOBAL CONSTANTS (Image Assets) ---
+        // --- GAME CONSTANTS ---
+        const GAME_AREA_WIDTH = 400;
+        const BOMBER_WIDTH = 21; 
+        const BOMBER_HEIGHT = 50; 
+        const BUCKET_WIDTH = 50; 
+        const BUCKET_STACK_WIDTH = 50; 
+        const BUCKET_HEIGHT = 20;
+        const BUCKET_GAP_HEIGHT = 2; 
+        const BUCKET_UNIT_HEIGHT = BUCKET_HEIGHT + BUCKET_GAP_HEIGHT; 
+        const BOMB_SIZE = 15; 
+        const INITIAL_BUCKET_COUNT = 3;
+        const GAME_AREA_HEIGHT = 600;
+        const EXPLOSION_WIDTH = 80; 
+        const EXPLOSION_HEIGHT = 64; 
+        const EXPLOSION_DELAY = 500; // Time between sequential bomb detonations
+        const EXPLOSION_DURATION = 600; // Time the explosion animation lasts
+
+        // NEW SPLASH CONSTANTS
+        const SPLASH_WIDTH = 33;
+        const SPLASH_HEIGHT = 46;
+        const SPLASH_ANIMATION_DURATION = 300; // Time in milliseconds the GIF takes to play once
+        
         const IMAGE_URLS = {
-            // Reverting to the user's original URL for the bomber
-            BOMBER: 'https://kevindkeene.github.io/kaboom-game-assets/root/bomber336x800.gif',
-            BOMB: 'https://placehold.co/20x20/808080/ffffff?text=B',
-            BUCKET: 'https://placehold.co/50x20/007bff/ffffff?text=CATCH',
-            EXPLOSION: 'https://placehold.co/80x80/ff8c00/ffffff?text=BOOM!'
+            BOMBER: 'https://kevindkeene.github.io/kaboom/assets/bomber336x800.gif',
+            BOMB: 'https://kevindkeene.github.io/kaboom/assets/bomb240x448.gif',
+            BUCKET: 'https://kevindkeene.github.io/kaboom/assets/bucket.gif', 
+            EXPLOSION: 'https://kevindkeene.github.io/kaboom/assets/explosion320x256.gif',
+            SPLASH: 'https://kevindkeene.github.io/kaboom/assets/splash264x368.gif'
         };
         
-        // --- GLOBAL CONSTANTS (Difficulty Settings) ---
         const DIFFICULTY_SETTINGS = {
-            EASY: {
-                baseBombSpeed: 2.0,     // Slower start
-                initialDropInterval: 120, // Less frequent
-                initialBomberSpeed: 1.0,  // Slower bomber
-            },
-            MEDIUM: {
-                baseBombSpeed: 2.5,     // Standard start
-                initialDropInterval: 100,
-                initialBomberSpeed: 1.5,
-            },
-            HARD: {
-                baseBombSpeed: 3.2,     // Faster start
-                initialDropInterval: 70,  // More frequent
-                initialBomberSpeed: 2.0,  // Faster bomber
-            }
+            EASY: { baseBombSpeed: 2.0, initialDropInterval: 120, initialBomberSpeed: 1.0 },
+            MEDIUM: { baseBombSpeed: 2.5, initialDropInterval: 100, initialBomberSpeed: 1.5 },
+            HARD: { baseBombSpeed: 3.2, initialDropInterval: 70, initialBomberSpeed: 2.0 }
         };
         
         // Global variables provided by the environment (MUST be used)
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null; 
 
         // --- GAME STATE ---
         let score = 0;
-        let lives = 3;
+        let lives = INITIAL_BUCKET_COUNT;
         let highscore = 0;
         let isGameOver = true;
         let isGamePaused = true;
         let frame = 0;
         let bombs = [];
         let bucketElements = [];
-        let currentDifficulty = 'MEDIUM'; // Default
+        let currentDifficulty = 'MEDIUM';
 
-        // Game element parameters
-        const GAME_AREA_WIDTH = 400; // Hardcoded based on max-w-[400px] for consistent logic
-        const GAME_AREA_HEIGHT = 600;
-        const BUCKET_WIDTH = 50; 
-        const BUCKET_STACK_WIDTH = 80; 
-        const BUCKET_HEIGHT = 20;
-        const BOMB_SIZE = 20;
-        const BUCKET_COLLISION_HEIGHT = 60; // Total height of the stack element
-
-        // Dynamic game variables (initial values are overwritten in startGame)
+        // Dynamic game variables 
         let bucketX = (GAME_AREA_WIDTH / 2) - (BUCKET_STACK_WIDTH / 2); 
         let bombDropInterval = 100;
         let baseBombSpeed = 2.5;
-        let speedMultiplier = 1;
+        let speedMultiplier = 1; // Controls bomb drop speed increase
         let madBomberX = 0;
         let madBomberDirection = 1;
-        let madBomberSpeed = 1.5;
+        let madBomberSpeed = 1.5; // Controls bomber movement speed
 
         // Firebase references
         let db;
         let auth;
         let userId;
         let highscoreRef;
+        let animationFrameHandle; 
 
         // --- Firebase Initialization and Auth ---
         function getHighscoreDocRef(dbInstance, uid) {
-            // Using private data path structure for user-specific highscores
             const collectionPath = `/artifacts/${appId}/users/${uid}/highscores`;
             return doc(dbInstance, collectionPath, 'kaboom-score');
         }
@@ -173,7 +186,7 @@
         async function initFirebase() {
             if (Object.keys(firebaseConfig).length === 0) {
                  console.error("Firebase config is missing. High scores will not be saved.");
-                 document.getElementById('user-id-display').textContent = 'Firebase Error: Config Missing';
+                 document.getElementById('user-id-display').textContent = 'Firebase Error: Config Missing (Offline)';
                  return;
             }
 
@@ -182,7 +195,6 @@
                 db = getFirestore(app);
                 auth = getAuth(app);
 
-                // Authentication
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         userId = user.uid;
@@ -190,7 +202,6 @@
                         document.getElementById('user-id-display').textContent = userId;
                         setupHighscoreListener();
                     } else {
-                         // Sign in anonymously if no user is signed in
                         if (initialAuthToken) {
                             await signInWithCustomToken(auth, initialAuthToken);
                         } else {
@@ -201,16 +212,14 @@
 
             } catch (error) {
                 console.error("Firebase Initialization or Auth failed:", error);
-                document.getElementById('user-id-display').textContent = 'Firebase Error: Auth Failed';
+                document.getElementById('user-id-display').textContent = 'Firebase Error: Auth Failed (Check Console)';
             }
         }
 
         function setupHighscoreListener() {
             if (!highscoreRef) return;
-
             onSnapshot(highscoreRef, (doc) => {
                 if (doc.exists()) {
-                    // Ensure the highscore is treated as a number
                     highscore = Number(doc.data().score) || 0; 
                     document.getElementById('highscore-display').textContent = highscore;
                 }
@@ -221,14 +230,59 @@
 
         async function saveHighscore() {
             if (!highscoreRef || score <= highscore) return;
-
             try {
                 await setDoc(highscoreRef, { score: score, timestamp: new Date() }, { merge: true });
-                highscore = score; // Update local highscore immediately
+                highscore = score;
             } catch (error) {
                 console.error("Error saving high score:", error);
             }
         }
+
+        // --- Pause/Resume Control ---
+        function updatePauseButton() {
+            const button = document.getElementById('pause-toggle-button');
+            const playIcon = document.getElementById('play-icon');
+            const pauseIcon = document.getElementById('pause-icon');
+
+            if (isGamePaused) {
+                playIcon.classList.remove('hidden');
+                pauseIcon.classList.add('hidden');
+                button.classList.add('text-yellow-400');
+                button.classList.remove('text-gray-400');
+            } else {
+                playIcon.classList.add('hidden');
+                pauseIcon.classList.remove('hidden');
+                button.classList.add('text-gray-400');
+                button.classList.remove('text-yellow-400');
+            }
+        }
+
+        function togglePause() {
+            if (isGameOver) return;
+            
+            // If the game is paused due to cleanup, prevent manual resume
+            if (isGamePaused && document.getElementById('temp-message').textContent === "Cleanup...") {
+                showTemporaryMessage("Wait for cleanup!", "text-red-400");
+                return;
+            }
+
+            isGamePaused = !isGamePaused;
+            updatePauseButton();
+
+            // Show a temporary message when manually pausing/resuming
+            if (isGamePaused) {
+                showTemporaryMessage("PAUSED", "text-blue-400");
+                // Stop the frame loop
+                if (animationFrameHandle) {
+                    cancelAnimationFrame(animationFrameHandle);
+                }
+            } else {
+                showTemporaryMessage("GO!", "text-green-400");
+                // Restart the frame loop
+                gameLoop();
+            }
+        }
+
 
         // --- Game Setup and Control ---
 
@@ -237,62 +291,80 @@
             bucketsContainer.innerHTML = '';
             bucketElements = [];
 
-            // Initialize the three visual bucket elements
-            for (let i = 0; i < 3; i++) {
+            for (let i = 0; i < INITIAL_BUCKET_COUNT; i++) {
                 const bucket = document.createElement('img');
-                bucket.src = IMAGE_URLS.BUCKET;
-                bucket.classList.add('bucket-img');
+                bucket.src = IMAGE_URLS.BUCKET; 
+                bucket.classList.add('bucket-img'); 
                 bucketsContainer.appendChild(bucket);
                 bucketElements.push(bucket);
             }
-            document.getElementById('mad-bomber-img').style.display = 'block';
+            document.getElementById('mad-bomber-img').src = IMAGE_URLS.BOMBER; 
         }
 
         function startGame(difficultyLevel) {
+            console.log(`Attempting to start game on ${difficultyLevel} difficulty.`); 
             if (!isGameOver && !isGamePaused) return;
+            
+            if (animationFrameHandle) {
+                cancelAnimationFrame(animationFrameHandle);
+            }
 
-            // Apply difficulty settings
             currentDifficulty = difficultyLevel;
             const settings = DIFFICULTY_SETTINGS[currentDifficulty];
 
             score = 0;
-            lives = 3;
+            lives = INITIAL_BUCKET_COUNT;
             isGameOver = false;
             isGamePaused = false;
+            frame = 0; 
             
-            // Set game parameters based on difficulty
             baseBombSpeed = settings.baseBombSpeed;
             bombDropInterval = settings.initialDropInterval;
             madBomberSpeed = settings.initialBomberSpeed;
 
-            // Clear all existing bombs
             bombs.forEach(b => b.element.remove());
             bombs = [];
 
-            // Reset game parameters
             bucketX = (GAME_AREA_WIDTH / 2) - (BUCKET_STACK_WIDTH / 2);
-            madBomberX = 0;
+            madBomberX = 0; 
             speedMultiplier = 1;
 
-            // Hide overlay
+            document.getElementById('game-area').classList.add('hide-pointer');
+
             const overlay = document.getElementById('overlay');
             overlay.style.opacity = 0;
             setTimeout(() => {
                 overlay.classList.add('hidden');
             }, 300);
+            
+            document.getElementById('mad-bomber-img').style.display = 'block';
+            
+            // Show and initialize the pause button for the active game
+            document.getElementById('pause-toggle-button').classList.remove('opacity-0', 'pointer-events-none');
+            updatePauseButton();
 
             initGameElements();
-            updateScoreDisplay();
-            requestAnimationFrame(gameLoop);
+            updateScoreDisplay(); 
+            
+            gameLoop();
         }
 
         function endGame() {
             if (isGameOver) return;
             isGameOver = true;
             isGamePaused = true;
+            
+            if (animationFrameHandle) {
+                cancelAnimationFrame(animationFrameHandle);
+            }
+
             saveHighscore();
 
-            // Show the difficulty selection screen which handles Game Over messaging
+            document.getElementById('game-area').classList.remove('hide-pointer');
+            
+            // Hide the pause button on game over
+            document.getElementById('pause-toggle-button').classList.add('opacity-0', 'pointer-events-none');
+            
             showDifficultySelection(true); 
             document.getElementById('mad-bomber-img').style.display = 'none';
         }
@@ -301,14 +373,17 @@
             const overlay = document.getElementById('overlay');
             const message = document.getElementById('status-message');
             const difficultyContainer = document.getElementById('difficulty-buttons');
+            const bomberEl = document.getElementById('mad-bomber-img');
 
-            // Show overlay elements
+            if (bomberEl) {
+                bomberEl.style.display = 'none';
+            }
+            
             overlay.classList.remove('hidden');
             overlay.style.opacity = 1;
             difficultyContainer.classList.remove('hidden');
             
             if (isGameOverState) {
-                // Game Over screen - show score and then prompt for next game
                 message.innerHTML = `
                     <p class="text-4xl font-extrabold mb-4 text-red-500">KABOOM! Game Over!</p>
                     <p class="text-xl mb-2">Final Score: <span class="text-yellow-400">${score}</span></p>
@@ -316,16 +391,14 @@
                     <p class="text-xl font-bold text-gray-200">Select a Difficulty to Start Over</p>
                 `;
             } else {
-                // Initial start screen
                 message.innerHTML = `
                     <p class="text-5xl font-extrabold mb-4 text-yellow-400">KABOOM!</p>
                     <p class="text-xl mb-3">Catch the bombs before they hit the ground!</p>
                     <p class="text-sm mb-4">Control: Drag mouse or touch horizontally inside the game area.</p>
-                    <p class="text-lg font-bold text-gray-200">Select Difficulty:</p>
+                    <p class="text-lg font-bold text-gray-200">Select Difficulty to Play:</p>
                 `;
             }
             
-            // Clear and generate difficulty buttons
             difficultyContainer.innerHTML = '';
             const difficulties = ['EASY', 'MEDIUM', 'HARD'];
             const colorMap = {
@@ -347,24 +420,142 @@
         function handleInput(event) {
             if (isGameOver || isGamePaused) return;
 
-            // Determine X coordinate based on event type (mouse or touch)
             const clientX = event.touches ? event.touches[0].clientX : event.clientX;
             const gameAreaRect = document.getElementById('game-area').getBoundingClientRect();
             
             let normalizedX = clientX - gameAreaRect.left;
-
-            // Calculate the new bucketX position, centered on the cursor/touch point
-            // We use GAME_AREA_WIDTH (400) for logic consistency regardless of window size
             let newBucketX = normalizedX - BUCKET_STACK_WIDTH / 2;
 
-            // Clamp the bucket position within the game area boundaries (0 to 400 - 80)
-            bucketX = Math.max(0, Math.min(newBucketX, GAME_AREA_WIDTH - BUCKET_STACK_WIDTH));
+            // Using a 3-pixel buffer on the right clamp for the bucket stack to prevent touch overflow.
+            bucketX = Math.max(0, Math.min(newBucketX, GAME_AREA_WIDTH - BUCKET_STACK_WIDTH - 3));
 
-            // Immediately update the display position
             document.getElementById('buckets-stack').style.left = `${bucketX}px`;
         }
+        
+        // --- Main Game Loop ---
+        function gameLoop() {
+            if (isGameOver || isGamePaused) {
+                // If paused, we cancel the animation frame and rely on togglePause to restart it
+                if (isGamePaused && animationFrameHandle) {
+                    cancelAnimationFrame(animationFrameHandle);
+                }
+                return;
+            }
 
-        // --- Bomb Generation and Movement ---
+            frame++;
+            
+            moveBomber();
+            generateBomb();
+            moveBombs();
+            document.getElementById('score-display').textContent = score; 
+
+            animationFrameHandle = requestAnimationFrame(gameLoop);
+        }
+
+        // --- Shared Movement/Collision Functions ---
+        function moveBomber() {
+            const speed = madBomberSpeed * speedMultiplier;
+            madBomberX += madBomberDirection * speed;
+
+            const maxRight = GAME_AREA_WIDTH - BOMBER_WIDTH - 4; 
+            const minLeft = 1; 
+            
+            if (madBomberX > maxRight) {
+                madBomberDirection = -1;
+                madBomberX = maxRight; 
+            } else if (madBomberX < minLeft) {
+                madBomberDirection = 1;
+                madBomberX = minLeft; 
+            }
+            
+            document.getElementById('mad-bomber-img').style.left = `${madBomberX}px`;
+
+            const initialBomberSpeed = DIFFICULTY_SETTINGS[currentDifficulty].initialBomberSpeed;
+            const speedIncrease = Math.floor(score / 30) * 0.1;
+            madBomberSpeed = initialBomberSpeed + speedIncrease;
+            madBomberSpeed = Math.min(madBomberSpeed, 6);
+        }
+        
+        function createSplash() {
+            // Recalculate the position of the top of the entire bucket stack container
+            const totalGaps = lives > 0 ? (lives - 1) * BUCKET_GAP_HEIGHT : 0;
+            const totalContentHeight = (lives * BUCKET_HEIGHT) + totalGaps;
+            const stackYPosition = GAME_AREA_HEIGHT - totalContentHeight;
+
+            const splashEl = document.createElement('img');
+            splashEl.src = IMAGE_URLS.SPLASH;
+            splashEl.classList.add('splash-img');
+            
+            splashEl.style.width = `${SPLASH_WIDTH}px`;
+            splashEl.style.height = `${SPLASH_HEIGHT}px`;
+
+            // Horizontal: Center the splash GIF over the moving bucket stack
+            const splashX = bucketX + (BUCKET_STACK_WIDTH / 2) - (SPLASH_WIDTH / 2);
+            
+            // Vertical FIX: Position the TOP of the splash GIF so its BOTTOM aligns with the stackYPosition
+            const splashY = stackYPosition - SPLASH_HEIGHT;
+            
+            splashEl.style.left = `${splashX}px`; 
+            splashEl.style.top = `${splashY}px`; 
+            
+            document.getElementById('game-area').appendChild(splashEl);
+
+            // Remove the splash element after its animation duration
+            setTimeout(() => splashEl.remove(), SPLASH_ANIMATION_DURATION);
+        }
+
+
+        function checkCollision(bomb, bucketTop) {
+            // NOTE: The bucketTop variable correctly represents the Y coordinate of the *top surface* of the highest active bucket.
+            const bucketBottom = GAME_AREA_HEIGHT; 
+            const bombBottom = bomb.y + BOMB_SIZE;
+            const bucketRight = bucketX + BUCKET_STACK_WIDTH;
+            const bombRight = bomb.x + BOMB_SIZE;
+
+            // Vertical Check: Does the bottom of the bomb cross the top collision line?
+            if (bombBottom > bucketTop && bomb.y < bucketBottom) {
+                // Horizontal Check: Is the bomb horizontally aligned with the bucket stack?
+                if (bombRight > bucketX && bomb.x < bucketRight) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function generateBomb() {
+            const minInterval = 10;
+            const initialInterval = DIFFICULTY_SETTINGS[currentDifficulty].initialDropInterval;
+            
+            let newInterval = initialInterval - Math.floor(score / 10); 
+            bombDropInterval = Math.max(minInterval, newInterval);
+
+            if (frame % Math.floor(bombDropInterval) === 0) {
+                const dropX = madBomberX + (BOMBER_WIDTH / 2) - BOMB_SIZE / 2;
+                createBomb(dropX, BOMBER_HEIGHT);
+            }
+        }
+
+        function moveBombs() {
+            // Calculate the current Y position of the top catchable surface
+            const currentCollisionHeight = lives * BUCKET_UNIT_HEIGHT; 
+            const bucketTop = GAME_AREA_HEIGHT - currentCollisionHeight;
+
+            for (let i = bombs.length - 1; i >= 0; i--) {
+                const bomb = bombs[i];
+                bomb.y += bomb.speed;
+                bomb.element.style.top = `${bomb.y}px`;
+
+                if (bomb.y + BOMB_SIZE > GAME_AREA_HEIGHT) {
+                    missBomb(i, bomb);
+                    continue;
+                }
+
+                if (checkCollision(bomb, bucketTop)) {
+                    catchBomb(i, bomb);
+                    continue;
+                }
+            }
+        }
 
         function createBomb(x, y) {
             const bombEl = document.createElement('img');
@@ -374,242 +565,228 @@
             bombEl.style.top = `${y}px`;
             document.getElementById('game-area').appendChild(bombEl);
 
-            bombs.push({ x: x, y: y, element: bombEl, speed: baseBombSpeed * speedMultiplier });
-        }
-
-        function generateBomb() {
-            const minInterval = 10;
-            // Get base interval from current difficulty setting
-            const initialInterval = DIFFICULTY_SETTINGS[currentDifficulty].initialDropInterval;
-            
-            // Scaling logic: Reduce interval from base by 1 frame per 10 score points.
-            let newInterval = initialInterval - Math.floor(score / 10); 
-            bombDropInterval = Math.max(minInterval, newInterval);
-
-            if (frame % Math.floor(bombDropInterval) === 0) {
-                // Drop bomb from the middle of the bomber
-                const dropX = madBomberX + (document.getElementById('mad-bomber-img').offsetWidth / 2) - BOMB_SIZE / 2;
-                // Drop bomb just below the bomber image
-                createBomb(dropX, document.getElementById('mad-bomber-img').offsetHeight);
-            }
-        }
-
-        function moveBombs() {
-            for (let i = bombs.length - 1; i >= 0; i--) {
-                const bomb = bombs[i];
-                bomb.y += bomb.speed;
-                bomb.element.style.top = `${bomb.y}px`;
-
-                // Check for missed bomb (hits the bottom of the game area)
-                if (bomb.y + BOMB_SIZE > GAME_AREA_HEIGHT) {
-                    missBomb(i, bomb);
-                    continue;
-                }
-
-                // Check for collision with bucket
-                if (checkCollision(bomb)) {
-                    catchBomb(i, bomb);
-                    continue;
-                }
-            }
-        }
-
-        function moveBomber() {
-            const bomberWidth = document.getElementById('mad-bomber-img').offsetWidth;
-
-            madBomberX += madBomberDirection * madBomberSpeed * speedMultiplier;
-
-            if (madBomberX > GAME_AREA_WIDTH - bomberWidth || madBomberX < 0) {
-                madBomberDirection *= -1;
-                // Nudge it back into bounds to prevent sticking
-                madBomberX = Math.max(0, Math.min(madBomberX, GAME_AREA_WIDTH - bomberWidth));
-            }
-
-            document.getElementById('mad-bomber-img').style.left = `${madBomberX}px`;
-
-            // Gradually increase bomber speed based on its initial difficulty setting
-            const initialBomberSpeed = DIFFICULTY_SETTINGS[currentDifficulty].initialBomberSpeed;
-            const speedIncrease = Math.floor(score / 30) * 0.1;
-            
-            madBomberSpeed = initialBomberSpeed + speedIncrease;
-            madBomberSpeed = Math.min(madBomberSpeed, 6);
-        }
-
-        // --- Collision and Outcomes ---
-
-        function checkCollision(bomb) {
-            // The top of the catchable area (top of the highest bucket)
-            // Bucket stack starts at GAME_AREA_HEIGHT - BUCKET_COLLISION_HEIGHT
-            const bucketTop = GAME_AREA_HEIGHT - BUCKET_COLLISION_HEIGHT; 
-            
-            const bucketBottom = GAME_AREA_HEIGHT;
-            const bombBottom = bomb.y + BOMB_SIZE;
-
-            const bucketRight = bucketX + BUCKET_STACK_WIDTH;
-            const bombRight = bomb.x + BOMB_SIZE;
-
-            // 1. Vertical Check: Is the bomb touching the bucket zone?
-            if (bombBottom > bucketTop && bomb.y < bucketBottom) {
-                // 2. Horizontal Check: Is the bomb horizontally within the bucket's boundaries?
-                if (bombRight > bucketX && bomb.x < bucketRight) {
-                    return true;
-                }
-            }
-            return false;
+            // Apply current speed multiplier to new bombs
+            const bombSpeed = DIFFICULTY_SETTINGS[currentDifficulty].baseBombSpeed * speedMultiplier;
+            bombs.push({ x: x, y: y, element: bombEl, speed: bombSpeed });
         }
 
         function catchBomb(index, bomb) {
             score++;
-            // Use a slight fade out effect before removal
+            
+            createSplash();
+            
             bomb.element.style.opacity = 0; 
             
-            // Immediately remove the bomb element from the DOM
             setTimeout(() => {
                 bomb.element.remove();
             }, 100); 
             
             bombs.splice(index, 1);
 
-            // Increase speed multiplier every 10 catches
             if (score % 10 === 0) {
                 speedMultiplier += 0.05;
-                // Cap the speed increase
                 speedMultiplier = Math.min(speedMultiplier, 3.0); 
             }
 
-            // Optional: Life earned every 1000 points
-            if (score > 0 && score % 1000 === 0 && lives < 3) {
+            if (score > 0 && score % 1000 === 0 && lives < INITIAL_BUCKET_COUNT) {
                 lives++;
                 showTemporaryMessage("Extra Bucket!", "text-green-400");
+                updateScoreDisplay(); 
             }
         }
 
         function missBomb(index, bomb) {
             lives--;
 
-            // Explosion effect where the bomb lands (at the bottom)
-            createExplosion(bomb.x, GAME_AREA_HEIGHT - 40);
+            // 1. Pause the game immediately to stop movement
+            isGamePaused = true; 
+            
+            // FIX: Reduce speed multiplier to give player a small breather
+            if (lives > 0) {
+                // Ensure speed multiplier does not drop below 1.0 (base difficulty)
+                speedMultiplier = Math.max(1.0, speedMultiplier - 0.15); 
+                console.log(`Lives lost. Speed multiplier reduced to: ${speedMultiplier.toFixed(2)}`);
+            }
 
-            // Remove the bomb
+            // 2. Initial explosion and cleanup for the missed bomb
+            createExplosion(bomb.x, bomb.y); 
             bomb.element.remove();
             bombs.splice(index, 1);
 
-            // Important: Update visual life display immediately
             updateScoreDisplay(); 
 
+            // 3. Show KABOOM message, then switch to a CLEANUP message
             showTemporaryMessage("KABOOM!", "text-red-500");
+            
+            // Wait for KABOOM to fade, then show cleanup message
+            setTimeout(() => {
+                if (lives > 0) {
+                    showTemporaryMessage("Cleanup...", "text-yellow-400");
+                }
+                
+                if (lives <= 0) {
+                    detonateAllBombsSequentially(true);
+                } else {
+                    detonateAllBombsSequentially(false);
+                }
+            }, EXPLOSION_DURATION); // Wait 600ms for KABOOM to clear
 
-            if (lives <= 0) {
-                endGame();
-            } else {
-                // Pause briefly after a miss
-                isGamePaused = true;
-                // Immediately clear the screen of other bombs after a hit/miss
-                clearScreenOfBombs();
-
-                setTimeout(() => {
-                    isGamePaused = false;
-                }, 750);
-            }
         }
         
-        function clearScreenOfBombs() {
-             // Clear all remaining bombs (they "explode" in the process)
-            bombs.forEach(b => {
-                createExplosion(b.x, b.y);
-                b.element.remove();
+        function detonateAllBombsSequentially(isLastLife = false) {
+            const bombsToDetonate = [...bombs]; 
+            const numBombs = bombsToDetonate.length;
+            
+            bombs = []; 
+
+            // Time needed for the initial explosion in missBomb to fade (600ms)
+            const INITIAL_FUSE_TIME = EXPLOSION_DURATION; 
+            
+            if (numBombs === 0) {
+                // If no other bombs were falling, just wait for the initial explosion to finish
+                setTimeout(() => {
+                    if (isLastLife) {
+                        endGame(); 
+                    } else {
+                        // Clear the "Cleanup..." message and resume
+                        showTemporaryMessage("", ""); 
+                        isGamePaused = false; 
+                        updatePauseButton(); // Update button to running state
+                        gameLoop(); // Explicitly restart the game loop
+                    }
+                }, INITIAL_FUSE_TIME);
+                return;
+            }
+
+            // Sorts bombs from bottom (highest Y) to top (lowest Y)
+            bombsToDetonate.sort((a, b) => b.y - a.y); 
+
+            // Start the sequential explosions AFTER the initial explosion in missBomb has started/faded.
+            bombsToDetonate.forEach((bomb, index) => {
+                // index=0 (bottom bomb) explodes at 600ms, index=1 at 600ms + 500ms, etc.
+                const delay = INITIAL_FUSE_TIME + index * EXPLOSION_DELAY; 
+                
+                setTimeout(() => {
+                    createExplosion(bomb.x, bomb.y);
+                    bomb.element.remove();
+                }, delay);
             });
-            bombs = [];
+
+            // Calculate the exact time the last explosion finishes
+            const lastBombDelay = INITIAL_FUSE_TIME + (numBombs - 1) * EXPLOSION_DELAY;
+            const resumeDelay = lastBombDelay + EXPLOSION_DURATION; 
+            
+            setTimeout(() => {
+                if (isLastLife) {
+                    endGame(); 
+                } else {
+                    // Clear the "Cleanup..." message and resume
+                    showTemporaryMessage("", ""); 
+                    isGamePaused = false; 
+                    updatePauseButton(); // Update button to running state
+                    gameLoop(); // Explicitly restart the game loop
+                }
+            }, resumeDelay);
         }
+        
 
         function createExplosion(x, y) {
             const explosionEl = document.createElement('img');
             explosionEl.src = IMAGE_URLS.EXPLOSION;
             explosionEl.classList.add('explosion-img');
-            // Center the explosion on the bomb's position
-            explosionEl.style.left = `${x + BOMB_SIZE/2 - 40}px`; 
-            explosionEl.style.top = `${y + BOMB_SIZE/2 - 40}px`;
+            explosionEl.style.left = `${x + BOMB_SIZE / 2 - EXPLOSION_WIDTH / 2}px`; 
+            explosionEl.style.top = `${y + BOMB_SIZE - EXPLOSION_HEIGHT}px`; 
             document.getElementById('game-area').appendChild(explosionEl);
-            // Clean up the explosion element after the animation
-            setTimeout(() => explosionEl.remove(), 600);
+            // The animation lasts for 600ms (EXPLOSION_DURATION)
+            setTimeout(() => explosionEl.remove(), EXPLOSION_DURATION); 
         }
 
         function showTemporaryMessage(text, colorClass) {
             const messageEl = document.getElementById('temp-message');
             messageEl.textContent = text;
-            // Set class names and ensure it's visible
-            messageEl.className = `absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-3xl font-extrabold p-3 rounded-lg z-20 transition-opacity duration-300 ${colorClass}`;
+            
+            if (text === "") {
+                // Special case to hide/clear the message
+                messageEl.style.opacity = 0;
+                messageEl.classList.add('pointer-events-none');
+                return;
+            }
+
+            // The temporary message is centered using CSS classes
+            messageEl.className = `absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-3xl font-extrabold p-3 rounded-lg z-20 transition-opacity duration-300 ${colorClass} shadow-2xl`;
             messageEl.style.opacity = 1;
             messageEl.classList.remove('pointer-events-none');
 
-            setTimeout(() => {
-                messageEl.style.opacity = 0;
-                messageEl.classList.add('pointer-events-none');
-            }, 600);
+            // Only fade out automatically if it's the KABOOM message or GO!
+            if (text === "KABOOM!") {
+                setTimeout(() => {
+                    messageEl.style.opacity = 0;
+                }, 600);
+            } else if (text === "GO!" || text === "Wait for cleanup!") {
+                 // For GO! and temporary warnings, let it flash briefly
+                 setTimeout(() => {
+                    messageEl.style.opacity = 0;
+                    messageEl.classList.add('pointer-events-none');
+                 }, 300);
+            }
+            // "PAUSED" and "Cleanup..." remain until explicitly cleared.
         }
 
-        // --- Update and Rendering ---
-
         function updateScoreDisplay() {
-            document.getElementById('score-display').textContent = score;
-            // Display the maximum of the current highscore or current score
-            document.getElementById('highscore-display').textContent = Math.max(highscore, score);
+            document.getElementById('score-display').textContent = score || 0;
+            document.getElementById('highscore-display').textContent = highscore || 0;
 
-            // Visually update the number of buckets/lives
+            const totalGaps = lives > 0 ? (lives - 1) * BUCKET_GAP_HEIGHT : 0;
+            const totalContentHeight = (lives * BUCKET_HEIGHT) + totalGaps;
+            
+            // 1. Set the height of the moving container
+            document.getElementById('buckets-stack').style.height = `${totalContentHeight}px`;
+
+            // 2. Set the Y position (from the top of the game area)
+            const stackYPosition = GAME_AREA_HEIGHT - totalContentHeight;
+            document.getElementById('buckets-stack').style.top = `${stackYPosition}px`;
+
+
             bucketElements.forEach((el, index) => {
-                // Buckets are displayed bottom-up, 0 is the lowest.
-                // If lives=1, only index 0 is visible. If lives=3, 0, 1, 2 are visible.
-                if (index < lives) {
-                    el.style.display = 'block';
+                const isActive = index < lives;
+                
+                if (isActive) {
+                    el.style.opacity = 1;
+                    el.style.transform = 'translateY(0)'; 
+                    el.style.display = 'block'; 
+
                 } else {
+                    el.style.opacity = 0;
+                    el.style.transform = 'translateY(100%)'; 
                     el.style.display = 'none';
                 }
             });
         }
 
-        // --- Game Loop ---
-
-        function gameLoop() {
-            if (isGameOver) return;
-
-            frame++;
-            if (!isGamePaused) {
-                moveBomber();
-                generateBomb();
-                moveBombs();
-                updateScoreDisplay(); // Update display every frame
-            }
-
-            requestAnimationFrame(gameLoop);
-        }
 
         // --- Event Listeners and Initial Load ---
         window.onload = function () {
-            // Initial Firebase setup
-            initFirebase();
-
-            // Set up game input listeners
-            const gameArea = document.getElementById('game-area');
+            console.log("Kaboom! Script initialized successfully."); 
             
-            // Mouse Listener
-            gameArea.addEventListener('mousemove', handleInput);
-            
-            // Touch Listeners
-            gameArea.addEventListener('touchstart', (e) => {
-                 e.preventDefault(); // Prevent accidental scrolling
-                 handleInput(e);
-            });
-            gameArea.addEventListener('touchmove', (e) => {
-                e.preventDefault();
-                handleInput(e);
-            });
-
-            // Show the difficulty selection screen on load
-            showDifficultySelection(false); 
-            
-            // Initialize the game stack visuals immediately
+            // 1. Initialize necessary game elements
             initGameElements();
-            updateScoreDisplay();
+            updateScoreDisplay(); 
+
+            // 2. Show the Difficulty Selection UI immediately
+            showDifficultySelection(false); 
+            console.log("Difficulty selection screen initialized.");
+            
+            // 3. Wire up input control 
+            const gameArea = document.getElementById('game-area');
+            gameArea.addEventListener('mousemove', handleInput);
+            gameArea.addEventListener('touchstart', handleInput);
+            gameArea.addEventListener('touchmove', handleInput);
+
+            // Wire up the new pause button
+            document.getElementById('pause-toggle-button').addEventListener('click', togglePause);
+
+            // 4. Initialize Firebase (runs asynchronously)
+            initFirebase();
         };
     </script>
 </head>
@@ -620,43 +797,58 @@
     </div>
 
     <div id="game-container" class="w-full flex flex-col items-center">
-        <!-- Scoreboard -->
-        <div class="w-full max-w-[400px] bg-gray-900 p-3 rounded-t-lg shadow-xl flex justify-between text-lg font-mono border-t-2 border-x-2 border-yellow-500">
+        
+        <!-- Scoreboard - PAUSE BUTTON ADDED HERE -->
+        <div class="w-full max-w-[400px] bg-gray-900 p-3 rounded-t-lg shadow-xl flex justify-between items-center text-lg font-mono border-t-2 border-x-2 border-yellow-500">
             <span>SCORE: <span id="score-display" class="text-green-400">0</span></span>
+            
+            <button id="pause-toggle-button" class="text-gray-400 hover:text-white transition duration-150 p-1 rounded-full border border-gray-700 hover:border-white opacity-0 pointer-events-none">
+                <!-- Play Icon (Visible when PAUSED) -->
+                <svg id="play-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.26a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <!-- Pause Icon (Visible when RUNNING) -->
+                <svg id="pause-icon" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 18a8 8 0 100-16 8 8 0 000 16zM15 9h-2M9 9h-2"></path>
+                </svg>
+            </button>
+
             <span>HIGH SCORE: <span id="highscore-display" class="text-yellow-400">0</span></span>
         </div>
 
-        <!-- The Game Area -->
-        <div id="game-area" class="w-full h-[600px] max-w-[400px] rounded-b-lg relative cursor-crosshair">
-            <!-- Mad Bomber Character (Image) -->
+        
+        <!-- Game Area -->
+        <div id="game-area" class="w-full h-[600px] max-w-[400px] rounded-b-lg relative">
+            
             <img id="mad-bomber-img" class="mad-bomber-img" style="display: none;" alt="Mad Bomber">
 
-            <!-- Buckets (Player Controlled Stack) -->
+            
             <div id="buckets-stack" class="bucket-stack">
-                <!-- Bucket image elements are dynamically added by JavaScript -->
+                <!-- Buckets are dynamically added here -->
             </div>
-
-            <!-- Temporary Message Overlay (e.g., "Bucket Lost!") -->
+            
             <div id="temp-message" class="transition-opacity duration-300 opacity-0 pointer-events-none"></div>
 
-            <!-- Start/Game Over Overlay -->
+            
             <div id="overlay" class="game-status-overlay hidden">
                 <div class="text-center p-6 rounded-lg">
-                    <!-- Status message (start screen or game over message) populated by JS -->
+                    
                     <div id="status-message" class="mb-8"></div>
                     
-                    <!-- Difficulty buttons populated by JS -->
                     <div id="difficulty-buttons" class="flex flex-col md:flex-row justify-center items-center space-y-3 md:space-y-0 md:space-x-4">
-                        <!-- Buttons go here -->
+                        <!-- Difficulty buttons are dynamically added here -->
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- User ID Display (MANDATORY for multi-user/persistence apps) -->
+    
+    <!-- Footer/User Info -->
     <div class="mt-4 text-xs text-gray-500 w-full max-w-[400px] text-center">
         <p>User ID: <span id="user-id-display">Initializing Firebase...</span></p>
     </div>
 </body>
 </html>
+
