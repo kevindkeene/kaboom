@@ -3,89 +3,58 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kaboom! - The Bomb Catcher</title>
+    <title>Kaboom! - The Arcade</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #111827; color: #f9fafb; }
-        /* Custom styles for the game area */
+        
+        body { font-family: 'Inter', sans-serif; background-color: #111827; color: #f9fafb; margin: 0; }
+        
         #game-area {
             position: relative;
             width: 100%;
             max-width: 400px;
             height: 600px;
-            /* Note: Using an external GIF for the background */
-            background-image: url('https://kevindkeene.github.io/kaboom/assets/kaboom-background.gif');
             background-size: cover;
             background-repeat: no-repeat;
             border: none; 
-            box-shadow: none; 
             overflow: hidden;
             margin: auto;
-            touch-action: none; /* Prevents native scrolling/zooming */
+            touch-action: none; 
             cursor: crosshair;
         }
 
-        /* NEW: Hide pointer during active gameplay */
-        #game-area.hide-pointer {
-            cursor: none !important;
+        #game-area.hide-pointer { cursor: none !important; }
+
+        .pixel-art {
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
         }
+
         .mad-bomber-img {
             position: absolute;
             top: 0;
             left: 0;
-            width: 21px; /* Bomber width */
-            height: 50px;
             z-index: 100;
         }
+
         .bucket-stack {
             position: absolute;
-            /* Positioned using 'top' style in JS */
-            left: 50%; /* Initial position, will be overridden by JS */
-            width: 50px; 
-            height: 70px; /* Max height for all 3 buckets + gaps */
             display: flex;
-            flex-direction: column-reverse; /* Stacks children from bottom up */
+            flex-direction: column-reverse; 
             align-items: center;
             justify-content: flex-start;
-            gap: 2px;
             z-index: 90;
-            /* TEMPORARY DEBUG BORDER */
-            border: 1px dashed skyblue; 
-            box-shadow: none; 
-            transition: all 0.2s ease-out;
+            transition: top 0.2s ease-out;
         }
-        .bucket-img {
-            width: 50px; 
-            height: 20px;
-            box-shadow: none; 
-            transition: all 0.2s ease-out; 
-            /* NO BORDERS ARE APPLIED */
-        }
-        .bomb-img {
-            position: absolute;
-            width: 15px; /* Bomb width */
-            height: 28px; /* Bomb height */
-            z-index: 50;
-            transition: opacity 0.1s; /* smooth removal effect */
-        }
-        /* NEW: Splash Animation Style */
-        .splash-img {
-            position: absolute;
-            z-index: 250;
-            pointer-events: none; /* Ensure it doesn't interfere with input */
-        }
-        .explosion-img {
-            position: absolute;
-            width: 80px; /* Display width of explosion - Scaled up */
-            height: 64px; /* Display height of explosion - Proportional to 80px width */
-            z-index: 200;
-        }
-        @keyframes explode {
-            0% { transform: scale(0.1); opacity: 1; }
-            100% { transform: scale(1.5); opacity: 0; }
-        }
+
+        .bucket-img { object-fit: contain; }
+
+        .bomb-img { position: absolute; z-index: 50; transition: opacity 0.1s; }
+        .splash-img { position: absolute; z-index: 250; pointer-events: none; }
+        .explosion-img { position: absolute; z-index: 200; }
+
         .game-status-overlay {
             position: absolute;
             top: 0;
@@ -95,7 +64,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: rgba(0, 0, 0, 0.5);
+            background: rgba(0, 0, 0, 0.9);
             backdrop-filter: blur(2px);
             z-index: 300;
             transition: opacity 0.3s;
@@ -105,749 +74,494 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
-        setLogLevel('Debug');
-
-        // --- GAME CONSTANTS ---
+        // --- CONSTANTS ---
         const GAME_AREA_WIDTH = 400;
-        const BOMBER_WIDTH = 21; 
-        const BOMBER_HEIGHT = 50; 
-        const BUCKET_WIDTH = 50; 
-        const BUCKET_STACK_WIDTH = 50; 
-        const BUCKET_HEIGHT = 20;
-        const BUCKET_GAP_HEIGHT = 2; 
-        const BUCKET_UNIT_HEIGHT = BUCKET_HEIGHT + BUCKET_GAP_HEIGHT; 
-        const BOMB_SIZE = 15; 
-        const INITIAL_BUCKET_COUNT = 3;
         const GAME_AREA_HEIGHT = 600;
-        const EXPLOSION_WIDTH = 80; 
-        const EXPLOSION_HEIGHT = 64; 
-        const EXPLOSION_DELAY = 500; // Time between sequential bomb detonations
-        const EXPLOSION_DURATION = 600; // Time the explosion animation lasts
-
-        // NEW SPLASH CONSTANTS
-        const SPLASH_WIDTH = 33;
-        const SPLASH_HEIGHT = 46;
-        const SPLASH_ANIMATION_DURATION = 300; // Time in milliseconds the GIF takes to play once
+        const INITIAL_BUCKET_COUNT = 3;
+        const EXPLOSION_DELAY = 700; 
+        const EXPLOSION_DURATION = 600; 
+        const ANIMATION_DURATION_EFFECT = 300; 
         
-        const IMAGE_URLS = {
-            BOMBER: 'https://kevindkeene.github.io/kaboom/assets/bomber336x800.gif',
-            BOMB: 'https://kevindkeene.github.io/kaboom/assets/bomb240x448.gif',
-            BUCKET: 'https://kevindkeene.github.io/kaboom/assets/bucket.gif', 
-            EXPLOSION: 'https://kevindkeene.github.io/kaboom/assets/explosion320x256.gif',
-            SPLASH: 'https://kevindkeene.github.io/kaboom/assets/splash264x368.gif'
+        const THEMES = {
+            'classic': {
+                title: 'Classic Kaboom',
+                description: 'The original bomb-catching challenge.',
+                isStacked: true, 
+                bomberDim: { w: 21, h: 50 }, 
+                bombDim: { w: 15, h: 28 },
+                bucketDim: { w: 50, h: 20, gap: 2 },
+                splashDim: { w: 33, h: 46 },
+                explosionDim: { w: 80, h: 64 }, // Standard explosion size
+                hitbox: { xOffset: 0, catchW: 50, yOffset: 0, catchH: 20 }, 
+                graphics: {
+                    BOMBER: 'https://kevindkeene.github.io/kaboom/assets/bomber336x800.gif',
+                    BOMB: 'https://kevindkeene.github.io/kaboom/assets/bomb240x448.gif',
+                    BUCKET: 'https://kevindkeene.github.io/kaboom/assets/bucket.gif', 
+                    EXPLOSION: 'https://kevindkeene.github.io/kaboom/assets/explosion320x256.gif',
+                    SPLASH: 'https://kevindkeene.github.io/kaboom/assets/splash264x368.gif',
+                    BACKGROUND: 'https://kevindkeene.github.io/kaboom/assets/kaboom-background.gif'
+                },
+                settings: {
+                    EASY: { baseBombSpeed: 2.0, initialDropInterval: 120, initialBomberSpeed: 1.0 },
+                    MEDIUM: { baseBombSpeed: 2.5, initialDropInterval: 100, initialBomberSpeed: 1.5 },
+                    HARD: { baseBombSpeed: 3.2, initialDropInterval: 70, initialBomberSpeed: 2.0 }
+                }
+            },
+            'alien-drop': {
+                title: 'Alien Cow Drop',
+                description: 'Catch falling cows on your tractor trailer hay bales!',
+                isStacked: false, 
+                bomberDim: { w: 50, h: 50 }, 
+                bombDim: { w: 32, h: 26 }, 
+                bucketDim: { w: 220, h: 80, gap: 0 }, 
+                splashDim: { w: 80, h: 80 },
+                explosionDim: { w: 80, h: 80 }, // Adjusted for the "Splat" graphic
+                hitboxByLife: [
+                    { xOffset: 115, catchW: 100, yOffset: 38, catchH: 18 }, 
+                    { xOffset: 115, catchW: 100, yOffset: 19, catchH: 37 }, 
+                    { xOffset: 115, catchW: 100, yOffset: 0,  catchH: 56 }  
+                ],
+                graphics: {
+                    BOMBER: 'https://kevindkeene.github.io/kaboom/assets/ufo2-400x400.gif', 
+                    BOMB: 'https://kevindkeene.github.io/kaboom/assets/cow3.gif', 
+                    BUCKET_LAYERS: [
+                        'https://kevindkeene.github.io/kaboom/assets/tractor-0hay.gif',
+                        'https://kevindkeene.github.io/kaboom/assets/tractor-1hay.gif',
+                        'https://kevindkeene.github.io/kaboom/assets/tractor-2hay.gif',
+                        'https://kevindkeene.github.io/kaboom/assets/tractor-3hay.gif'
+                    ],
+                    EXPLOSION: 'https://kevindkeene.github.io/kaboom/assets/splat.gif', // UPDATED TO SPLAT
+                    SPLASH: 'https://kevindkeene.github.io/kaboom/assets/burst.gif',
+                    BACKGROUND: 'https://kevindkeene.github.io/kaboom/assets/alien_background2.gif'
+                },
+                settings: {
+                    EASY: { baseBombSpeed: 2.5, initialDropInterval: 100, initialBomberSpeed: 1.5 },
+                    MEDIUM: { baseBombSpeed: 3.0, initialDropInterval: 80, initialBomberSpeed: 2.0 },
+                    HARD: { baseBombSpeed: 3.8, initialDropInterval: 60, initialBomberSpeed: 2.5 }
+                }
+            }
         };
-        
-        const DIFFICULTY_SETTINGS = {
-            EASY: { baseBombSpeed: 2.0, initialDropInterval: 120, initialBomberSpeed: 1.0 },
-            MEDIUM: { baseBombSpeed: 2.5, initialDropInterval: 100, initialBomberSpeed: 1.5 },
-            HARD: { baseBombSpeed: 3.2, initialDropInterval: 70, initialBomberSpeed: 2.0 }
-        };
-        
-        // Global variables provided by the environment (MUST be used)
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null; 
 
         // --- GAME STATE ---
-        let score = 0;
-        let lives = INITIAL_BUCKET_COUNT;
-        let highscore = 0;
-        let isGameOver = true;
-        let isGamePaused = true;
-        let frame = 0;
-        let bombs = [];
-        let bucketElements = [];
-        let currentDifficulty = 'MEDIUM';
+        let score = 0, lives = INITIAL_BUCKET_COUNT, highscore = 0, level = 1;
+        let isGameOver = true, isGamePaused = true, frame = 0;
+        let bombs = [], bucketElements = [];
+        let currentThemeId = 'classic', currentDifficulty = 'MEDIUM';
+        let bucketX = 0, madBomberX = 0, madBomberDirection = 1;
+        let speedMultiplier = 1, madBomberSpeed = 1.5;
+        let bombsDroppedInLevel = 0, totalBombsToDropInLevel = 15;
+        let isTransitioningLevel = false;
+        
+        let db, auth, userId, highscoreRef, animationFrameHandle;
 
-        // Dynamic game variables 
-        let bucketX = (GAME_AREA_WIDTH / 2) - (BUCKET_STACK_WIDTH / 2); 
-        let bombDropInterval = 100;
-        let baseBombSpeed = 2.5;
-        let speedMultiplier = 1; // Controls bomb drop speed increase
-        let madBomberX = 0;
-        let madBomberDirection = 1;
-        let madBomberSpeed = 1.5; // Controls bomber movement speed
-
-        // Firebase references
-        let db;
-        let auth;
-        let userId;
-        let highscoreRef;
-        let animationFrameHandle; 
-
-        // --- Firebase Initialization and Auth ---
-        function getHighscoreDocRef(dbInstance, uid) {
-            const collectionPath = `/artifacts/${appId}/users/${uid}/highscores`;
-            return doc(dbInstance, collectionPath, 'kaboom-score');
+        function getCurrentHitbox() {
+            const theme = THEMES[currentThemeId];
+            if (theme.isStacked) return theme.hitbox;
+            return theme.hitboxByLife[Math.max(0, lives - 1)];
         }
 
         async function initFirebase() {
-            if (Object.keys(firebaseConfig).length === 0) {
-                 console.error("Firebase config is missing. High scores will not be saved.");
-                 document.getElementById('user-id-display').textContent = 'Firebase Error: Config Missing (Offline)';
-                 return;
-            }
-
-            try {
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        highscoreRef = getHighscoreDocRef(db, userId);
-                        document.getElementById('user-id-display').textContent = userId;
-                        setupHighscoreListener();
-                    } else {
-                        if (initialAuthToken) {
-                            await signInWithCustomToken(auth, initialAuthToken);
-                        } else {
-                            await signInAnonymously(auth);
-                        }
-                    }
-                });
-
-            } catch (error) {
-                console.error("Firebase Initialization or Auth failed:", error);
-                document.getElementById('user-id-display').textContent = 'Firebase Error: Auth Failed (Check Console)';
-            }
-        }
-
-        function setupHighscoreListener() {
-            if (!highscoreRef) return;
-            onSnapshot(highscoreRef, (doc) => {
-                if (doc.exists()) {
-                    highscore = Number(doc.data().score) || 0; 
-                    document.getElementById('highscore-display').textContent = highscore;
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            const config = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+            if (!config.apiKey) return;
+            const app = initializeApp(config);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            onAuthStateChanged(auth, async (u) => {
+                if (u) {
+                    userId = u.uid;
+                    highscoreRef = doc(db, `/artifacts/${appId}/users/${userId}/highscores`, 'kaboom-score');
+                    onSnapshot(highscoreRef, (d) => { if (d.exists()) highscore = d.data().score; updateScoreDisplay(); });
+                } else {
+                    const t = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                    if (t) await signInWithCustomToken(auth, t); else await signInAnonymously(auth);
                 }
-            }, (error) => {
-                console.error("Error listening to highscore:", error);
             });
         }
 
-        async function saveHighscore() {
-            if (!highscoreRef || score <= highscore) return;
-            try {
-                await setDoc(highscoreRef, { score: score, timestamp: new Date() }, { merge: true });
-                highscore = score;
-            } catch (error) {
-                console.error("Error saving high score:", error);
-            }
-        }
-
-        // --- Pause/Resume Control ---
-        function updatePauseButton() {
-            const button = document.getElementById('pause-toggle-button');
-            const playIcon = document.getElementById('play-icon');
-            const pauseIcon = document.getElementById('pause-icon');
-
-            if (isGamePaused) {
-                playIcon.classList.remove('hidden');
-                pauseIcon.classList.add('hidden');
-                button.classList.add('text-yellow-400');
-                button.classList.remove('text-gray-400');
-            } else {
-                playIcon.classList.add('hidden');
-                pauseIcon.classList.remove('hidden');
-                button.classList.add('text-gray-400');
-                button.classList.remove('text-yellow-400');
-            }
-        }
-
-        function togglePause() {
-            if (isGameOver) return;
+        function startGame(themeId, diff) {
+            isGameOver = false; isGamePaused = false;
+            currentThemeId = themeId; currentDifficulty = diff;
+            const theme = THEMES[themeId];
+            const settings = theme.settings[diff];
             
-            // If the game is paused due to cleanup, prevent manual resume
-            if (isGamePaused && document.getElementById('temp-message').textContent === "Cleanup...") {
-                showTemporaryMessage("Wait for cleanup!", "text-red-400");
-                return;
-            }
-
-            isGamePaused = !isGamePaused;
-            updatePauseButton();
-
-            // Show a temporary message when manually pausing/resuming
-            if (isGamePaused) {
-                showTemporaryMessage("PAUSED", "text-blue-400");
-                // Stop the frame loop
-                if (animationFrameHandle) {
-                    cancelAnimationFrame(animationFrameHandle);
-                }
-            } else {
-                showTemporaryMessage("GO!", "text-green-400");
-                // Restart the frame loop
-                gameLoop();
-            }
-        }
-
-
-        // --- Game Setup and Control ---
-
-        function initGameElements() {
-            const bucketsContainer = document.getElementById('buckets-stack');
-            bucketsContainer.innerHTML = '';
-            bucketElements = [];
-
-            for (let i = 0; i < INITIAL_BUCKET_COUNT; i++) {
-                const bucket = document.createElement('img');
-                bucket.src = IMAGE_URLS.BUCKET; 
-                bucket.classList.add('bucket-img'); 
-                bucketsContainer.appendChild(bucket);
-                bucketElements.push(bucket);
-            }
-            document.getElementById('mad-bomber-img').src = IMAGE_URLS.BOMBER; 
-        }
-
-        function startGame(difficultyLevel) {
-            console.log(`Attempting to start game on ${difficultyLevel} difficulty.`); 
-            if (!isGameOver && !isGamePaused) return;
+            if (animationFrameHandle) cancelAnimationFrame(animationFrameHandle);
             
-            if (animationFrameHandle) {
-                cancelAnimationFrame(animationFrameHandle);
-            }
+            score = 0; lives = INITIAL_BUCKET_COUNT; frame = 0; speedMultiplier = 1; level = 1;
+            bombsDroppedInLevel = 0;
+            totalBombsToDropInLevel = 15;
+            isTransitioningLevel = false;
 
-            currentDifficulty = difficultyLevel;
-            const settings = DIFFICULTY_SETTINGS[currentDifficulty];
+            madBomberX = 0; madBomberSpeed = settings.initialBomberSpeed;
+            bombs.forEach(b => b.element.remove()); bombs = [];
 
-            score = 0;
-            lives = INITIAL_BUCKET_COUNT;
-            isGameOver = false;
-            isGamePaused = false;
-            frame = 0; 
-            
-            baseBombSpeed = settings.baseBombSpeed;
-            bombDropInterval = settings.initialDropInterval;
-            madBomberSpeed = settings.initialBomberSpeed;
-
-            bombs.forEach(b => b.element.remove());
-            bombs = [];
-
-            bucketX = (GAME_AREA_WIDTH / 2) - (BUCKET_STACK_WIDTH / 2);
-            madBomberX = 0; 
-            speedMultiplier = 1;
-
-            document.getElementById('game-area').classList.add('hide-pointer');
-
-            const overlay = document.getElementById('overlay');
-            overlay.style.opacity = 2;
-            setTimeout(() => {
-                overlay.classList.add('hidden');
-            }, 300);
-            
+            document.getElementById('overlay').classList.add('hidden');
             document.getElementById('mad-bomber-img').style.display = 'block';
-            
-            // Show and initialize the pause button for the active game
+            document.getElementById('title-display').textContent = theme.title;
+            document.getElementById('game-area').classList.add('hide-pointer');
             document.getElementById('pause-toggle-button').classList.remove('opacity-0', 'pointer-events-none');
-            updatePauseButton();
 
             initGameElements();
-            updateScoreDisplay(); 
-            
+            updateScoreDisplay();
             gameLoop();
         }
 
-        function endGame() {
-            if (isGameOver) return;
-            isGameOver = true;
-            isGamePaused = true;
+        function startNextLevel() {
+            level++;
+            isTransitioningLevel = false;
+            bombsDroppedInLevel = 0;
+            totalBombsToDropInLevel = 15 + (level * 5); 
+            speedMultiplier += 0.15;
             
-            if (animationFrameHandle) {
-                cancelAnimationFrame(animationFrameHandle);
-            }
-
-            saveHighscore();
-
-            document.getElementById('game-area').classList.remove('hide-pointer');
-            
-            // Hide the pause button on game over
-            document.getElementById('pause-toggle-button').classList.add('opacity-0', 'pointer-events-none');
-            
-            showDifficultySelection(true); 
-            document.getElementById('mad-bomber-img').style.display = 'none';
+            showTemporaryMessage(`LEVEL ${level}`, "text-yellow-400");
+            updateScoreDisplay();
+            isGamePaused = false;
+            gameLoop();
         }
-        
-        function showDifficultySelection(isGameOverState = false) {
-            const overlay = document.getElementById('overlay');
-            const message = document.getElementById('status-message');
-            const difficultyContainer = document.getElementById('difficulty-buttons');
+
+        function initGameElements() {
+            const theme = THEMES[currentThemeId];
+            const stack = document.getElementById('buckets-stack');
             const bomberEl = document.getElementById('mad-bomber-img');
+            document.getElementById('game-area').style.backgroundImage = `url('${theme.graphics.BACKGROUND}')`;
 
-            if (bomberEl) {
-                bomberEl.style.display = 'none';
-            }
+            stack.innerHTML = ''; bucketElements = [];
+            stack.style.width = `${theme.bucketDim.w}px`;
             
-            overlay.classList.remove('hidden');
-            overlay.style.opacity = 1;
-            difficultyContainer.classList.remove('hidden');
-            
-            if (isGameOverState) {
-                message.innerHTML = `
-                    <p class="text-4xl font-extrabold mb-4 text-red-500">KABOOM! Game Over!</p>
-                    <p class="text-xl mb-2">Final Score: <span class="text-yellow-400">${score}</span></p>
-                    <p class="text-lg mb-8">High Score: <span class="text-yellow-400">${Math.max(highscore, score)}</span></p>
-                    <p class="text-xl font-bold text-gray-200">Select a Difficulty to Start Over</p>
-                `;
-            } else {
-                message.innerHTML = `
-                    <p class="text-5xl font-extrabold mb-4 text-yellow-400">KABOOM!</p>
-                    <p class="text-xl mb-3">Catch the bombs before they hit the ground!</p>
-                    <p class="text-sm mb-4">Control: Drag mouse or touch horizontally inside the game area.</p>
-                    <p class="text-lg font-bold text-gray-200">Select Difficulty to Play:</p>
-                `;
-            }
-            
-            difficultyContainer.innerHTML = '';
-            const difficulties = ['EASY', 'MEDIUM', 'HARD'];
-            const colorMap = {
-                EASY: 'bg-green-600 hover:bg-green-700',
-                MEDIUM: 'bg-yellow-600 hover:bg-yellow-700',
-                HARD: 'bg-red-600 hover:bg-red-700',
-            };
-
-            difficulties.forEach(level => {
-                const button = document.createElement('button');
-                button.textContent = level;
-                button.className = `${colorMap[level]} text-white font-bold py-3 px-8 rounded-full shadow-2xl transition duration-200 uppercase transform hover:scale-105 w-full md:w-auto`;
-                button.addEventListener('click', () => startGame(level));
-                difficultyContainer.appendChild(button);
-            });
-        }
-
-        // Mouse/Touch control for the paddle
-        function handleInput(event) {
-            if (isGameOver || isGamePaused) return;
-
-            const clientX = event.touches ? event.touches[0].clientX : event.clientX;
-            const gameAreaRect = document.getElementById('game-area').getBoundingClientRect();
-            
-            let normalizedX = clientX - gameAreaRect.left;
-            let newBucketX = normalizedX - BUCKET_STACK_WIDTH / 2;
-
-            // Using a 3-pixel buffer on the right clamp for the bucket stack to prevent touch overflow.
-            bucketX = Math.max(0, Math.min(newBucketX, GAME_AREA_WIDTH - BUCKET_STACK_WIDTH - 3));
-
-            document.getElementById('buckets-stack').style.left = `${bucketX}px`;
-        }
-        
-        // --- Main Game Loop ---
-        function gameLoop() {
-            if (isGameOver || isGamePaused) {
-                // If paused, we cancel the animation frame and rely on togglePause to restart it
-                if (isGamePaused && animationFrameHandle) {
-                    cancelAnimationFrame(animationFrameHandle);
+            if (theme.isStacked) {
+                for (let i = 0; i < INITIAL_BUCKET_COUNT; i++) {
+                    const b = document.createElement('img');
+                    b.src = theme.graphics.BUCKET;
+                    b.className = 'bucket-img pixel-art';
+                    b.style.width = `${theme.bucketDim.w}px`;
+                    b.style.height = `${theme.bucketDim.h}px`;
+                    stack.appendChild(b);
+                    bucketElements.push(b);
                 }
-                return;
+            } else {
+                const b = document.createElement('img');
+                b.id = 'single-catcher-img';
+                b.className = 'bucket-img pixel-art';
+                b.style.width = `${theme.bucketDim.w}px`;
+                b.style.height = `${theme.bucketDim.h}px`;
+                stack.appendChild(b);
+                bucketElements.push(b);
             }
 
-            frame++;
-            
-            moveBomber();
-            generateBomb();
-            moveBombs();
-            document.getElementById('score-display').textContent = score; 
+            bomberEl.src = theme.graphics.BOMBER;
+            bomberEl.className = 'mad-bomber-img pixel-art';
+            bomberEl.style.width = `${theme.bomberDim.w}px`;
+            bomberEl.style.height = `${theme.bomberDim.h}px`;
+        }
 
+        function gameLoop() {
+            if (isGameOver || isGamePaused) return;
+            frame++;
+            updateBomber();
+            updateBombs();
+            document.getElementById('score-display').textContent = score;
             animationFrameHandle = requestAnimationFrame(gameLoop);
         }
 
-        // --- Shared Movement/Collision Functions ---
-        function moveBomber() {
-            const speed = madBomberSpeed * speedMultiplier;
-            madBomberX += madBomberDirection * speed;
-
-            const maxRight = GAME_AREA_WIDTH - BOMBER_WIDTH - 4; 
-            const minLeft = 1; 
-            
-            if (madBomberX > maxRight) {
-                madBomberDirection = -1;
-                madBomberX = maxRight; 
-            } else if (madBomberX < minLeft) {
-                madBomberDirection = 1;
-                madBomberX = minLeft; 
-            }
-            
+        function updateBomber() {
+            const theme = THEMES[currentThemeId];
+            madBomberX += madBomberDirection * (madBomberSpeed * speedMultiplier);
+            if (madBomberX > (GAME_AREA_WIDTH - theme.bomberDim.w)) { madBomberDirection = -1; madBomberX = GAME_AREA_WIDTH - theme.bomberDim.w; }
+            else if (madBomberX < 0) { madBomberDirection = 1; madBomberX = 0; }
             document.getElementById('mad-bomber-img').style.left = `${madBomberX}px`;
 
-            const initialBomberSpeed = DIFFICULTY_SETTINGS[currentDifficulty].initialBomberSpeed;
-            const speedIncrease = Math.floor(score / 30) * 0.1;
-            madBomberSpeed = initialBomberSpeed + speedIncrease;
-            madBomberSpeed = Math.min(madBomberSpeed, 6);
-        }
-        
-        function createSplash() {
-            // Recalculate the position of the top of the entire bucket stack container
-            const totalGaps = lives > 0 ? (lives - 1) * BUCKET_GAP_HEIGHT : 0;
-            const totalContentHeight = (lives * BUCKET_HEIGHT) + totalGaps;
-            const stackYPosition = GAME_AREA_HEIGHT - totalContentHeight;
+            const settings = theme.settings[currentDifficulty];
+            madBomberSpeed = Math.min(settings.initialBomberSpeed + (Math.floor(score / 30) * 0.1), 8);
 
-            const splashEl = document.createElement('img');
-            splashEl.src = IMAGE_URLS.SPLASH;
-            splashEl.classList.add('splash-img');
-            
-            splashEl.style.width = `${SPLASH_WIDTH}px`;
-            splashEl.style.height = `${SPLASH_HEIGHT}px`;
-
-            // Horizontal: Center the splash GIF over the moving bucket stack
-            const splashX = bucketX + (BUCKET_STACK_WIDTH / 2) - (SPLASH_WIDTH / 2);
-            
-            // Vertical FIX: Position the TOP of the splash GIF so its BOTTOM aligns with the stackYPosition
-            const splashY = stackYPosition - SPLASH_HEIGHT;
-            
-            splashEl.style.left = `${splashX}px`; 
-            splashEl.style.top = `${splashY}px`; 
-            
-            document.getElementById('game-area').appendChild(splashEl);
-
-            // Remove the splash element after its animation duration
-            setTimeout(() => splashEl.remove(), SPLASH_ANIMATION_DURATION);
-        }
-
-
-        function checkCollision(bomb, bucketTop) {
-            // NOTE: The bucketTop variable correctly represents the Y coordinate of the *top surface* of the highest active bucket.
-            const bucketBottom = GAME_AREA_HEIGHT; 
-            const bombBottom = bomb.y + BOMB_SIZE;
-            const bucketRight = bucketX + BUCKET_STACK_WIDTH;
-            const bombRight = bomb.x + BOMB_SIZE;
-
-            // Vertical Check: Does the bottom of the bomb cross the top collision line?
-            if (bombBottom > bucketTop && bomb.y < bucketBottom) {
-                // Horizontal Check: Is the bomb horizontally aligned with the bucket stack?
-                if (bombRight > bucketX && bomb.x < bucketRight) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        function generateBomb() {
-            const minInterval = 10;
-            const initialInterval = DIFFICULTY_SETTINGS[currentDifficulty].initialDropInterval;
-            
-            let newInterval = initialInterval - Math.floor(score / 10); 
-            bombDropInterval = Math.max(minInterval, newInterval);
-
-            if (frame % Math.floor(bombDropInterval) === 0) {
-                const dropX = madBomberX + (BOMBER_WIDTH / 2) - BOMB_SIZE / 2;
-                createBomb(dropX, BOMBER_HEIGHT);
-            }
-        }
-
-        function moveBombs() {
-            // Calculate the current Y position of the top catchable surface
-            const currentCollisionHeight = lives * BUCKET_UNIT_HEIGHT; 
-            const bucketTop = GAME_AREA_HEIGHT - currentCollisionHeight;
-
-            for (let i = bombs.length - 1; i >= 0; i--) {
-                const bomb = bombs[i];
-                bomb.y += bomb.speed;
-                bomb.element.style.top = `${bomb.y}px`;
-
-                if (bomb.y + BOMB_SIZE > GAME_AREA_HEIGHT) {
-                    missBomb(i, bomb);
-                    continue;
-                }
-
-                if (checkCollision(bomb, bucketTop)) {
-                    catchBomb(i, bomb);
-                    continue;
+            if (bombsDroppedInLevel < totalBombsToDropInLevel) {
+                const dropInt = Math.max(8, settings.initialDropInterval - (level * 5) - Math.floor(score / 15));
+                if (frame % Math.floor(dropInt) === 0) {
+                    const x = madBomberX + (theme.bomberDim.w / 2) - (theme.bombDim.w / 2);
+                    createBomb(x, theme.bomberDim.h);
+                    bombsDroppedInLevel++;
                 }
             }
         }
 
         function createBomb(x, y) {
-            const bombEl = document.createElement('img');
-            bombEl.src = IMAGE_URLS.BOMB;
-            bombEl.classList.add('bomb-img');
-            bombEl.style.left = `${x}px`;
-            bombEl.style.top = `${y}px`;
-            document.getElementById('game-area').appendChild(bombEl);
-
-            // Apply current speed multiplier to new bombs
-            const bombSpeed = DIFFICULTY_SETTINGS[currentDifficulty].baseBombSpeed * speedMultiplier;
-            bombs.push({ x: x, y: y, element: bombEl, speed: bombSpeed });
+            const theme = THEMES[currentThemeId];
+            const el = document.createElement('img');
+            el.src = theme.graphics.BOMB;
+            el.className = 'bomb-img pixel-art';
+            el.style.width = `${theme.bombDim.w}px`;
+            el.style.height = `${theme.bombDim.h}px`;
+            el.style.left = `${x}px`; el.style.top = `${y}px`;
+            document.getElementById('game-area').appendChild(el);
+            bombs.push({ x, y, el, speed: (theme.settings[currentDifficulty].baseBombSpeed + (level * 0.1)) * speedMultiplier });
         }
 
-        function catchBomb(index, bomb) {
-            score++;
-            
-            createSplash();
-            
-            bomb.element.style.opacity = 0; 
-            
-            setTimeout(() => {
-                bomb.element.remove();
-            }, 100); 
-            
-            bombs.splice(index, 1);
-
-            if (score % 10 === 0) {
-                speedMultiplier += 0.05;
-                speedMultiplier = Math.min(speedMultiplier, 3.0); 
+        function updateBombs() {
+            const theme = THEMES[currentThemeId];
+            const hitbox = getCurrentHitbox();
+            let catchTopY;
+            if (theme.isStacked) {
+                catchTopY = GAME_AREA_HEIGHT - (lives * (theme.bucketDim.h + theme.bucketDim.gap));
+            } else {
+                catchTopY = GAME_AREA_HEIGHT - theme.bucketDim.h + hitbox.yOffset;
             }
 
-            if (score > 0 && score % 1000 === 0 && lives < INITIAL_BUCKET_COUNT) {
-                lives++;
-                showTemporaryMessage("Extra Bucket!", "text-green-400");
-                updateScoreDisplay(); 
-            }
-        }
+            for (let i = bombs.length - 1; i >= 0; i--) {
+                const b = bombs[i];
+                b.y += b.speed;
+                b.el.style.top = `${b.y}px`;
 
-        function missBomb(index, bomb) {
-            lives--;
+                if (b.y + theme.bombDim.h > GAME_AREA_HEIGHT) {
+                    handleMiss(i, b);
+                } else if (lives > 0) {
+                    const cXStart = bucketX + hitbox.xOffset;
+                    const cXEnd = cXStart + hitbox.catchW;
+                    const midX = b.x + (theme.bombDim.w / 2);
+                    const catchBottomY = catchTopY + hitbox.catchH;
 
-            // 1. Pause the game immediately to stop movement
-            isGamePaused = true; 
-            
-            // FIX: Reduce speed multiplier to give player a small breather
-            if (lives > 0) {
-                // Ensure speed multiplier does not drop below 1.0 (base difficulty)
-                speedMultiplier = Math.max(1.0, speedMultiplier - 0.15); 
-                console.log(`Lives lost. Speed multiplier reduced to: ${speedMultiplier.toFixed(2)}`);
-            }
-
-            // 2. Initial explosion and cleanup for the missed bomb
-            createExplosion(bomb.x, bomb.y); 
-            bomb.element.remove();
-            bombs.splice(index, 1);
-
-            updateScoreDisplay(); 
-
-            // 3. Show KABOOM message, then switch to a CLEANUP message
-            showTemporaryMessage("KABOOM!", "text-red-500");
-            
-            // Wait for KABOOM to fade, then show cleanup message
-            setTimeout(() => {
-                if (lives > 0) {
-                    showTemporaryMessage("Cleanup...", "text-yellow-400");
-                }
-                
-                if (lives <= 0) {
-                    detonateAllBombsSequentially(true);
-                } else {
-                    detonateAllBombsSequentially(false);
-                }
-            }, EXPLOSION_DURATION); // Wait 600ms for KABOOM to clear
-
-        }
-        
-        function detonateAllBombsSequentially(isLastLife = false) {
-            const bombsToDetonate = [...bombs]; 
-            const numBombs = bombsToDetonate.length;
-            
-            bombs = []; 
-
-            // Time needed for the initial explosion in missBomb to fade (600ms)
-            const INITIAL_FUSE_TIME = EXPLOSION_DURATION; 
-            
-            if (numBombs === 0) {
-                // If no other bombs were falling, just wait for the initial explosion to finish
-                setTimeout(() => {
-                    if (isLastLife) {
-                        endGame(); 
-                    } else {
-                        // Clear the "Cleanup..." message and resume
-                        showTemporaryMessage("", ""); 
-                        isGamePaused = false; 
-                        updatePauseButton(); // Update button to running state
-                        gameLoop(); // Explicitly restart the game loop
+                    if (b.y + theme.bombDim.h > catchTopY && b.y < catchBottomY && midX > cXStart && midX < cXEnd) {
+                        handleCatch(i, b, catchTopY);
                     }
-                }, INITIAL_FUSE_TIME);
-                return;
+                }
             }
 
-            // Sorts bombs from bottom (highest Y) to top (lowest Y)
-            bombsToDetonate.sort((a, b) => b.y - a.y); 
-
-            // Start the sequential explosions AFTER the initial explosion in missBomb has started/faded.
-            bombsToDetonate.forEach((bomb, index) => {
-                // index=0 (bottom bomb) explodes at 600ms, index=1 at 600ms + 500ms, etc.
-                const delay = INITIAL_FUSE_TIME + index * EXPLOSION_DELAY; 
-                
-                setTimeout(() => {
-                    createExplosion(bomb.x, bomb.y);
-                    bomb.element.remove();
-                }, delay);
-            });
-
-            // Calculate the exact time the last explosion finishes
-            const lastBombDelay = INITIAL_FUSE_TIME + (numBombs - 1) * EXPLOSION_DELAY;
-            const resumeDelay = lastBombDelay + EXPLOSION_DURATION; 
-            
-            setTimeout(() => {
-                if (isLastLife) {
-                    endGame(); 
-                } else {
-                    // Clear the "Cleanup..." message and resume
-                    showTemporaryMessage("", ""); 
-                    isGamePaused = false; 
-                    updatePauseButton(); // Update button to running state
-                    gameLoop(); // Explicitly restart the game loop
-                }
-            }, resumeDelay);
+            if (!isGameOver && bombsDroppedInLevel >= totalBombsToDropInLevel && bombs.length === 0 && !isTransitioningLevel) {
+                isTransitioningLevel = true;
+                isGamePaused = true;
+                showTemporaryMessage("LEVEL COMPLETE!", "text-green-400");
+                setTimeout(startNextLevel, 2000);
+            }
         }
-        
+
+        function handleCatch(idx, b, topY) {
+            score++;
+            const theme = THEMES[currentThemeId];
+            const impactX = b.x + (theme.bombDim.w / 2) - (theme.splashDim.w / 2);
+            createSplash(impactX, topY - theme.splashDim.h);
+            
+            b.el.remove(); bombs.splice(idx, 1);
+            if (score > 0 && score % 1000 === 0 && lives < INITIAL_BUCKET_COUNT) {
+                lives++; showTemporaryMessage("Extra Layer!", "text-green-400"); updateScoreDisplay();
+            }
+        }
+
+        function handleMiss(idx, b) {
+            lives--; isGamePaused = true;
+            const theme = THEMES[currentThemeId];
+            if (lives > 0) speedMultiplier = Math.max(1.0, speedMultiplier - 0.15);
+            
+            // Miss effect centered horizontally on bomb
+            createExplosion(b.x + (theme.bombDim.w / 2), b.y + theme.bombDim.h);
+            
+            b.el.remove(); bombs.splice(idx, 1);
+            updateScoreDisplay();
+            showTemporaryMessage("OOPS!", "text-red-500");
+            setTimeout(() => {
+                detonateRemaining(lives <= 0);
+            }, EXPLOSION_DURATION);
+        }
+
+        function detonateRemaining(isLast) {
+            const toEx = [...bombs]; bombs = [];
+            if (toEx.length === 0) { setTimeout(() => { if (isLast) endGame(); else resume(); }, EXPLOSION_DURATION); return; }
+            toEx.sort((a, b) => b.y - a.y);
+            toEx.forEach((b, i) => {
+                setTimeout(() => {
+                    const theme = THEMES[currentThemeId];
+                    createExplosion(b.x + (theme.bombDim.w / 2), b.y + theme.bombDim.h);
+                    b.el.remove();
+                }, EXPLOSION_DURATION + (i * EXPLOSION_DELAY));
+            });
+            setTimeout(() => { if (isLast) endGame(); else resume(); }, EXPLOSION_DURATION + (toEx.length * EXPLOSION_DELAY) + EXPLOSION_DURATION);
+        }
+
+        function resume() { 
+            if (isTransitioningLevel) return;
+            showTemporaryMessage("", ""); isGamePaused = false; updatePauseButton(); gameLoop(); 
+        }
+
+        function endGame() {
+            isGameOver = true; isGamePaused = true;
+            if (animationFrameHandle) cancelAnimationFrame(animationFrameHandle);
+            if (score > highscore && highscoreRef) setDoc(highscoreRef, { score, timestamp: new Date() }, { merge: true });
+            document.getElementById('game-area').classList.remove('hide-pointer');
+            document.getElementById('pause-toggle-button').classList.add('opacity-0', 'pointer-events-none');
+            showThemeSelection(true);
+        }
 
         function createExplosion(x, y) {
-            const explosionEl = document.createElement('img');
-            explosionEl.src = IMAGE_URLS.EXPLOSION;
-            explosionEl.classList.add('explosion-img');
-            explosionEl.style.left = `${x + BOMB_SIZE / 2 - EXPLOSION_WIDTH / 2}px`; 
-            explosionEl.style.top = `${y + BOMB_SIZE - EXPLOSION_HEIGHT}px`; 
-            document.getElementById('game-area').appendChild(explosionEl);
-            // The animation lasts for 600ms (EXPLOSION_DURATION)
-            setTimeout(() => explosionEl.remove(), EXPLOSION_DURATION); 
+            const theme = THEMES[currentThemeId];
+            const el = document.createElement('img');
+            el.src = theme.graphics.EXPLOSION;
+            el.className = 'explosion-img pixel-art';
+            el.style.width = `${theme.explosionDim.w}px`;
+            el.style.height = `${theme.explosionDim.h}px`;
+            el.style.left = `${x - theme.explosionDim.w / 2}px`; 
+            el.style.top = `${y - theme.explosionDim.h}px`;
+            document.getElementById('game-area').appendChild(el);
+            setTimeout(() => el.remove(), EXPLOSION_DURATION);
         }
 
-        function showTemporaryMessage(text, colorClass) {
-            const messageEl = document.getElementById('temp-message');
-            messageEl.textContent = text;
-            
-            if (text === "") {
-                // Special case to hide/clear the message
-                messageEl.style.opacity = 0;
-                messageEl.classList.add('pointer-events-none');
-                return;
-            }
-
-            // The temporary message is centered using CSS classes
-            messageEl.className = `absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-3xl font-extrabold p-3 rounded-lg z-20 transition-opacity duration-300 ${colorClass} shadow-2xl`;
-            messageEl.style.opacity = 1;
-            messageEl.classList.remove('pointer-events-none');
-
-            // Only fade out automatically if it's the KABOOM message or GO!
-            if (text === "KABOOM!") {
-                setTimeout(() => {
-                    messageEl.style.opacity = 0;
-                }, 600);
-            } else if (text === "GO!" || text === "Wait for cleanup!") {
-                 // For GO! and temporary warnings, let it flash briefly
-                 setTimeout(() => {
-                    messageEl.style.opacity = 0;
-                    messageEl.classList.add('pointer-events-none');
-                 }, 300);
-            }
-            // "PAUSED" and "Cleanup..." remain until explicitly cleared.
+        function createSplash(x, y) {
+            const theme = THEMES[currentThemeId];
+            const el = document.createElement('img');
+            el.src = theme.graphics.SPLASH;
+            el.className = 'splash-img pixel-art';
+            el.style.width = `${theme.splashDim.w}px`; el.style.height = `${theme.splashDim.h}px`;
+            el.style.left = `${x}px`; el.style.top = `${y}px`;
+            document.getElementById('game-area').appendChild(el);
+            setTimeout(() => el.remove(), ANIMATION_DURATION_EFFECT);
         }
 
         function updateScoreDisplay() {
-            document.getElementById('score-display').textContent = score || 0;
-            document.getElementById('highscore-display').textContent = highscore || 0;
-
-            const totalGaps = lives > 0 ? (lives - 1) * BUCKET_GAP_HEIGHT : 0;
-            const totalContentHeight = (lives * BUCKET_HEIGHT) + totalGaps;
+            document.getElementById('score-display').textContent = score;
+            document.getElementById('highscore-display').textContent = highscore;
+            document.getElementById('level-display').textContent = level;
             
-            // 1. Set the height of the moving container
-            document.getElementById('buckets-stack').style.height = `${totalContentHeight}px`;
+            const theme = THEMES[currentThemeId];
+            const stack = document.getElementById('buckets-stack');
 
-            // 2. Set the Y position (from the top of the game area)
-            const stackYPosition = GAME_AREA_HEIGHT - totalContentHeight;
-            document.getElementById('buckets-stack').style.top = `${stackYPosition}px`;
+            if (theme.isStacked) {
+                const unitH = theme.bucketDim.h + theme.bucketDim.gap;
+                const h = lives * unitH;
+                stack.style.height = `${h}px`;
+                stack.style.top = `${GAME_AREA_HEIGHT - h}px`;
+                bucketElements.forEach((el, idx) => el.style.display = idx < lives ? 'block' : 'none');
+            } else {
+                const h = theme.bucketDim.h;
+                stack.style.height = `${h}px`;
+                stack.style.top = `${GAME_AREA_HEIGHT - h}px`;
+                const img = document.getElementById('single-catcher-img');
+                if (img) img.src = theme.graphics.BUCKET_LAYERS[lives];
+            }
+        }
 
-
-            bucketElements.forEach((el, index) => {
-                const isActive = index < lives;
-                
-                if (isActive) {
-                    el.style.opacity = 1;
-                    el.style.transform = 'translateY(0)'; 
-                    el.style.display = 'block'; 
-
-                } else {
-                    el.style.opacity = 0;
-                    el.style.transform = 'translateY(100%)'; 
-                    el.style.display = 'none';
-                }
+        function showThemeSelection(isOver = false) {
+            const overlay = document.getElementById('overlay');
+            const msg = document.getElementById('status-message');
+            const btns = document.getElementById('difficulty-buttons');
+            overlay.classList.remove('hidden'); overlay.style.opacity = 1;
+            btns.innerHTML = '';
+            if (isOver) msg.innerHTML = `<p class="text-4xl font-extrabold text-red-500 mb-4 uppercase">GAME OVER</p><p class="text-xl mb-2">Final Score: ${score}</p><p class="text-lg mb-8">Reached Level: ${level}</p>`;
+            else msg.innerHTML = `<p class="text-5xl font-extrabold text-yellow-400 mb-4 uppercase">KABOOM!</p><p class="text-xl mb-8">Pick a Version:</p>`;
+            
+            Object.keys(THEMES).forEach(id => {
+                const b = document.createElement('button');
+                b.textContent = THEMES[id].title;
+                b.className = 'bg-indigo-600 text-white font-bold py-4 px-8 rounded-lg m-2 uppercase hover:scale-105 transition w-64 shadow-lg';
+                b.onclick = () => showDifficultySelection(id);
+                btns.appendChild(b);
             });
         }
 
+        function showDifficultySelection(themeId) {
+            const btns = document.getElementById('difficulty-buttons');
+            const theme = THEMES[themeId];
+            document.getElementById('status-message').innerHTML = `<p class="text-3xl font-bold text-yellow-400 mb-2 uppercase">${theme.title}</p><p class="text-gray-400 mb-8">${theme.description}</p>`;
+            btns.innerHTML = '';
+            ['EASY', 'MEDIUM', 'HARD'].forEach(l => {
+                const b = document.createElement('button');
+                b.textContent = l;
+                const colors = { EASY: 'bg-green-600', MEDIUM: 'bg-yellow-600', HARD: 'bg-red-600' };
+                b.className = `${colors[l]} text-white font-bold py-3 px-8 rounded-full m-2 uppercase hover:scale-105 transition shadow-md`;
+                b.onclick = () => startGame(themeId, l);
+                btns.appendChild(b);
+            });
+            const back = document.createElement('button');
+            back.textContent = 'Back'; back.className = 'bg-gray-700 text-white font-bold py-2 px-4 rounded-full mt-4 block mx-auto text-sm';
+            back.onclick = () => showThemeSelection();
+            btns.appendChild(back);
+        }
 
-        // --- Event Listeners and Initial Load ---
-        window.onload = function () {
-            console.log("Kaboom! Script initialized successfully."); 
+        function handleInput(e) {
+            if (isGameOver || isGamePaused) return;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const rect = document.getElementById('game-area').getBoundingClientRect();
+            const hitbox = getCurrentHitbox();
             
-            // 1. Initialize necessary game elements
-            initGameElements();
-            updateScoreDisplay(); 
+            const minX = 0 - hitbox.xOffset;
+            const maxX = GAME_AREA_WIDTH - (hitbox.xOffset + hitbox.catchW);
+            const imageLeft = (clientX - rect.left) - (hitbox.xOffset + hitbox.catchW / 2);
 
-            // 2. Show the Difficulty Selection UI immediately
-            showDifficultySelection(false); 
-            console.log("Difficulty selection screen initialized.");
+            bucketX = Math.max(minX, Math.min(imageLeft, maxX));
+            document.getElementById('buckets-stack').style.left = `${bucketX}px`;
+        }
+
+        function updatePauseButton() {
+            const play = document.getElementById('play-icon'), pause = document.getElementById('pause-icon');
+            if (isGamePaused) { play.classList.remove('hidden'); pause.classList.add('hidden'); }
+            else { play.classList.add('hidden'); pause.classList.remove('hidden'); }
+        }
+
+        function togglePause() {
+            if (isGameOver || isTransitioningLevel) return;
+            if (isGamePaused && document.getElementById('temp-message').textContent === "OOPS!") return;
+            isGamePaused = !isGamePaused; updatePauseButton();
+            if (isGamePaused) showTemporaryMessage("PAUSED", "text-blue-400");
+            else { showTemporaryMessage("GO!", "text-green-400"); gameLoop(); }
+        }
+
+        function showTemporaryMessage(text, color) {
+            const el = document.getElementById('temp-message');
+            el.textContent = text;
+            if (text === "") { el.style.opacity = 0; return; }
+            el.className = `absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-3xl font-extrabold p-3 rounded-lg z-20 transition-opacity duration-300 ${color} shadow-2xl`;
+            el.style.opacity = 1;
             
-            // 3. Wire up input control 
-            const gameArea = document.getElementById('game-area');
-            gameArea.addEventListener('mousemove', handleInput);
-            gameArea.addEventListener('touchstart', handleInput);
-            gameArea.addEventListener('touchmove', handleInput);
+            if (text === "OOPS!" || text === "GO!" || text === "LEVEL COMPLETE!" || text.startsWith("LEVEL ")) {
+                setTimeout(() => el.style.opacity = 0, 1500);
+            }
+        }
 
-            // Wire up the new pause button
-            document.getElementById('pause-toggle-button').addEventListener('click', togglePause);
-
-            // 4. Initialize Firebase (runs asynchronously)
+        window.onload = () => {
             initFirebase();
+            showThemeSelection();
+            const area = document.getElementById('game-area');
+            area.addEventListener('mousemove', handleInput);
+            area.addEventListener('touchstart', handleInput);
+            area.addEventListener('touchmove', handleInput);
+            document.getElementById('pause-toggle-button').onclick = togglePause;
         };
     </script>
 </head>
 <body class="p-4 flex flex-col items-center justify-center min-h-screen">
-
     <div class="text-center mb-6">
-        <h1 class="text-5xl font-extrabold text-red-500 shadow-lg tracking-wider">KABOOM!</h1>
+        <h1 id="title-display" class="text-5xl font-extrabold text-red-500 shadow-lg tracking-wider">KABOOM!</h1>
     </div>
-
     <div id="game-container" class="w-full flex flex-col items-center">
-        
-        <!-- Scoreboard - PAUSE BUTTON ADDED HERE -->
         <div class="w-full max-w-[400px] bg-gray-900 p-3 rounded-t-lg shadow-xl flex justify-between items-center text-lg font-mono border-t-2 border-x-2 border-yellow-500">
-            <span>SCORE: <span id="score-display" class="text-green-400">0</span></span>
-            
-            <button id="pause-toggle-button" class="text-gray-400 hover:text-white transition duration-150 p-1 rounded-full border border-gray-700 hover:border-white opacity-0 pointer-events-none">
-                <!-- Play Icon (Visible when PAUSED) -->
-                <svg id="play-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.26a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                </svg>
-                <!-- Pause Icon (Visible when RUNNING) -->
-                <svg id="pause-icon" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 18a8 8 0 100-16 8 8 0 000 16zM15 9h-2M9 9h-2"></path>
-                </svg>
-            </button>
-
-            <span>HIGH SCORE: <span id="highscore-display" class="text-yellow-400">0</span></span>
-        </div>
-
-        
-        <!-- Game Area -->
-        <div id="game-area" class="w-full h-[600px] max-w-[400px] rounded-b-lg relative">
-            
-            <img id="mad-bomber-img" class="mad-bomber-img" style="display: none;" alt="Mad Bomber">
-
-            
-            <div id="buckets-stack" class="bucket-stack">
-                <!-- Buckets are dynamically added here -->
+            <div class="flex flex-col">
+                <span class="text-xs text-gray-500">SCORE</span>
+                <span id="score-display" class="text-green-400">0</span>
             </div>
-            
+            <div class="flex flex-col items-center">
+                <span class="text-xs text-gray-500">LEVEL</span>
+                <span id="level-display" class="text-white">1</span>
+            </div>
+            <button id="pause-toggle-button" class="text-gray-400 hover:text-white transition duration-150 p-1 rounded-full border border-gray-700 opacity-0 pointer-events-none">
+                <svg id="play-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.26a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <svg id="pause-icon" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 18a8 8 0 100-16 8 8 0 000 16zM15 9h-2M9 9h-2"></path></svg>
+            </button>
+            <div class="flex flex-col items-end">
+                <span class="text-xs text-gray-500">HIGH</span>
+                <span id="highscore-display" class="text-yellow-400">0</span>
+            </div>
+        </div>
+        <div id="game-area" class="w-full h-[600px] max-w-[400px] rounded-b-lg relative">
+            <img id="mad-bomber-img" class="mad-bomber-img" style="display: none;" alt="Bomber">
+            <div id="buckets-stack" class="bucket-stack"></div>
             <div id="temp-message" class="transition-opacity duration-300 opacity-0 pointer-events-none"></div>
-
-            
             <div id="overlay" class="game-status-overlay hidden">
-                <div class="text-center p-6 rounded-lg">
-                    
+                <div class="text-center p-6">
                     <div id="status-message" class="mb-8"></div>
-                    
-                    <div id="difficulty-buttons" class="flex flex-col md:flex-row justify-center items-center space-y-3 md:space-y-0 md:space-x-4">
-                        <!-- Difficulty buttons are dynamically added here -->
-                    </div>
+                    <div id="difficulty-buttons" class="flex flex-wrap justify-center items-center"></div>
                 </div>
             </div>
         </div>
     </div>
-
-    
-    <!-- Footer/User Info -->
-    <div class="mt-4 text-xs text-gray-500 w-full max-w-[400px] text-center">
-        <p>User ID: <span id="user-id-display">Initializing Firebase...</span></p>
+    <div class="mt-4 text-xs text-gray-500 text-center">
+        <p>User ID: <span id="user-id-display">Connecting...</span></p>
     </div>
 </body>
 </html>
