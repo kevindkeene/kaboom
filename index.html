@@ -70,6 +70,7 @@
             transition: opacity 0.3s;
         }
 
+        /* Countdown Number Animation */
         .countdown-number {
             position: absolute;
             top: 50%;
@@ -87,6 +88,22 @@
         @keyframes countdownScaleFade {
             0% { transform: translate(-50%, -50%) scale(3); opacity: 1; }
             100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0; }
+        }
+
+        /* Rolling Ticker Animations */
+        .ticker-container {
+            height: 32px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .ticker-item {
+            height: 32px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         #preload-cache {
@@ -112,7 +129,7 @@
         
         const THEMES = {
             'classic': {
-                title: 'Classic Kaboom',
+                title: 'Classic',
                 description: 'The original bomb-catching challenge.',
                 isStacked: true, 
                 bomberDim: { w: 21, h: 50 }, 
@@ -138,7 +155,7 @@
                 }
             },
             'alien-drop': {
-                title: 'Alien Cow Drop',
+                title: 'Alien Drop',
                 description: 'Catch falling cows on your tractor trailer hay bales!',
                 isStacked: false, 
                 bomberDim: { w: 50, h: 50 }, 
@@ -185,6 +202,11 @@
         let isTransitioningLevel = false;
         let lastTapTime = 0; 
         
+        // Multi-Highscore State
+        let themeHighscores = { 'classic': 0, 'alien-drop': 0 };
+        let tickerIndex = 0;
+        let tickerInterval;
+
         let db, auth, userId, highscoreRef, animationFrameHandle;
 
         function triggerHaptic(pattern) {
@@ -217,8 +239,16 @@
             onAuthStateChanged(auth, async (u) => {
                 if (u) {
                     userId = u.uid;
-                    highscoreRef = doc(db, `/artifacts/${appId}/users/${userId}/highscores`, 'kaboom-score');
-                    onSnapshot(highscoreRef, (d) => { if (d.exists()) highscore = d.data().score; updateScoreDisplay(); });
+                    // We store all high scores in a single document for easy rolling display
+                    highscoreRef = doc(db, `/artifacts/${appId}/users/${userId}/highscores`, 'master-scores');
+                    onSnapshot(highscoreRef, (d) => { 
+                        if (d.exists()) {
+                            themeHighscores = { ...themeHighscores, ...d.data() };
+                            // Calculate global high score (the highest of all)
+                            highscore = Math.max(...Object.values(themeHighscores));
+                            updateScoreDisplay(); 
+                        }
+                    });
                     document.getElementById('user-id-display').textContent = userId;
                 } else {
                     const t = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
@@ -227,20 +257,61 @@
             });
         }
 
+        function startHighscoreTicker() {
+            if (tickerInterval) clearInterval(tickerInterval);
+            tickerInterval = setInterval(() => {
+                const themeIds = Object.keys(THEMES);
+                tickerIndex = (tickerIndex + 1) % themeIds.length;
+                
+                const themeId = themeIds[tickerIndex];
+                const themeTitle = THEMES[themeId].title;
+                const themeScore = (themeHighscores[themeId] || 0).toString().padStart(6, '0');
+
+                const tickerInner = document.getElementById('ticker-inner');
+                if (tickerInner) {
+                    // Update and trigger the "roll"
+                    tickerInner.style.transform = 'translateY(100%)';
+                    setTimeout(() => {
+                        document.getElementById('ticker-theme-name').textContent = themeTitle;
+                        document.getElementById('ticker-theme-score').textContent = themeScore;
+                        tickerInner.style.transition = 'none';
+                        tickerInner.style.transform = 'translateY(-100%)';
+                        tickerInner.offsetHeight; // trigger reflow
+                        tickerInner.style.transition = 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)';
+                        tickerInner.style.transform = 'translateY(0)';
+                    }, 500);
+                }
+            }, 3000);
+        }
+
+        function stopHighscoreTicker() {
+            if (tickerInterval) clearInterval(tickerInterval);
+        }
+
         function startGame(themeId, diff) {
             isGameOver = false; isGamePaused = false;
             currentThemeId = themeId; currentDifficulty = diff;
             const theme = THEMES[themeId];
             const settings = theme.settings[diff];
+            
+            stopHighscoreTicker();
             preloadThemeAssets(themeId);
             if (animationFrameHandle) cancelAnimationFrame(animationFrameHandle);
+            
             score = 0; lives = INITIAL_BUCKET_COUNT; frame = 0; speedMultiplier = 1; level = 1;
             levelCatches = 0; totalCatchesNeeded = 15; bombsDroppedInAttempt = 0; isTransitioningLevel = false;
+
             madBomberX = 0; madBomberSpeed = settings.initialBomberSpeed;
             bombs.forEach(b => b.element.remove()); bombs = [];
+
             document.getElementById('overlay').classList.add('hidden');
             document.getElementById('mad-bomber-img').style.display = 'block';
             document.getElementById('game-area').classList.add('hide-pointer');
+            
+            // Switch header view to In-Game Stats
+            document.getElementById('header-stats-play').classList.remove('hidden');
+            document.getElementById('header-stats-menu').classList.add('hidden');
+
             initGameElements();
             updateScoreDisplay();
             gameLoop();
@@ -411,8 +482,21 @@
             isGameOver = true; isGamePaused = true;
             triggerHaptic([200, 100, 200]);
             if (animationFrameHandle) cancelAnimationFrame(animationFrameHandle);
-            if (score > highscore && highscoreRef) setDoc(highscoreRef, { score, timestamp: new Date() }, { merge: true });
+            
+            // Save Multi-Theme Highscores
+            if (score > (themeHighscores[currentThemeId] || 0) && highscoreRef) {
+                const updateData = {};
+                updateData[currentThemeId] = score;
+                setDoc(highscoreRef, updateData, { merge: true });
+            }
+
             document.getElementById('game-area').classList.remove('hide-pointer');
+            
+            // Switch header view back to Menu/Ticker
+            document.getElementById('header-stats-play').classList.add('hidden');
+            document.getElementById('header-stats-menu').classList.remove('hidden');
+            startHighscoreTicker();
+
             showThemeSelection(true);
         }
 
@@ -439,11 +523,11 @@
         }
 
         function updateScoreDisplay() {
-            // FIXED: Padding applied consistently here
             document.getElementById('score-display').textContent = score.toString().padStart(6, '0');
             document.getElementById('highscore-display').textContent = highscore.toString().padStart(6, '0');
             document.getElementById('level-display').textContent = level;
             document.getElementById('left-display').textContent = Math.max(0, totalCatchesNeeded - levelCatches);
+            
             const theme = THEMES[currentThemeId];
             const stack = document.getElementById('buckets-stack');
             if (theme.isStacked) {
@@ -533,6 +617,7 @@
         window.onload = () => {
             initFirebase();
             showThemeSelection();
+            startHighscoreTicker();
             const area = document.getElementById('game-area');
             area.addEventListener('mousemove', handleInteraction);
             area.addEventListener('mousedown', handleInteraction);
@@ -545,24 +630,38 @@
     <div id="preload-cache"></div>
 
     <div id="game-container" class="w-full flex flex-col items-center">
-        <!-- CONDENSED SCOREBOARD -->
+        <!-- HEADER -->
         <div class="w-full max-w-[400px] bg-gray-900 px-4 py-2 rounded-t-lg shadow-2xl flex justify-between items-center border-t-2 border-x-2 border-yellow-500 font-mono">
-            <div class="flex items-baseline gap-1.5">
+            <!-- LEFT: HI (Highest score across all modes) -->
+            <div class="flex items-baseline gap-1.5 min-w-[70px]">
                 <span class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">HI</span>
-                <span id="highscore-display" class="text-yellow-400 font-bold text-sm tracking-tight">000000</span>
+                <span id="highscore-display" class="text-yellow-400 font-bold text-sm tracking-tight leading-none">000000</span>
             </div>
             
-            <div class="flex items-center gap-3">
-                <div class="flex items-baseline gap-1">
-                    <span class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">LVL</span>
-                    <span id="level-display" class="text-white font-bold text-sm">1</span>
+            <!-- CENTER: Dynamic Area (Ticker or Stats) -->
+            <div id="center-header-area" class="flex-1 flex justify-center items-center px-2">
+                <!-- IN-GAME VIEW -->
+                <div id="header-stats-play" class="hidden flex items-center gap-3">
+                    <div class="flex items-baseline gap-1">
+                        <span class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">LVL</span>
+                        <span id="level-display" class="text-white font-bold text-sm leading-none">1</span>
+                    </div>
+                    <div class="bg-gray-800 px-2 py-0.5 rounded text-[10px] font-bold text-yellow-400 border border-gray-700 leading-none">
+                        <span id="left-display">15</span> LEFT
+                    </div>
                 </div>
-                <div class="bg-gray-800 px-2 py-0.5 rounded text-[10px] font-bold text-yellow-400 border border-gray-700">
-                    <span id="left-display">15</span> LEFT
+
+                <!-- MENU VIEW (Rolling Ticker) -->
+                <div id="header-stats-menu" class="ticker-container w-full">
+                    <div id="ticker-inner" class="ticker-item">
+                        <span id="ticker-theme-name" class="text-[9px] text-gray-500 font-bold uppercase tracking-widest leading-none mb-1">Classic</span>
+                        <span id="ticker-theme-score" class="text-white font-bold text-xs leading-none">000000</span>
+                    </div>
                 </div>
             </div>
 
-            <div id="score-display" class="text-green-400 font-black text-xl tracking-widest">000000</div>
+            <!-- RIGHT: Current Score -->
+            <div id="score-display" class="text-green-400 font-black text-xl tracking-widest min-w-[90px] text-right">000000</div>
         </div>
 
         <!-- PLAY AREA -->
@@ -582,5 +681,4 @@
     </div>
 </body>
 </html>
-
 
