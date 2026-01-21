@@ -7,7 +7,7 @@
     
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800;900&display=swap');
         
         body { font-family: 'Inter', sans-serif; background-color: #111827; color: #f9fafb; margin: 0; overflow: hidden; }
         
@@ -68,6 +68,26 @@
             backdrop-filter: blur(4px);
             z-index: 300;
             transition: opacity 0.3s;
+        }
+
+        /* Countdown Number Animation */
+        .countdown-number {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 12rem;
+            font-weight: 900;
+            color: rgba(255, 255, 255, 0.7);
+            pointer-events: none;
+            z-index: 150;
+            line-height: 1;
+            animation: countdownScaleFade 0.4s ease-out forwards;
+        }
+
+        @keyframes countdownScaleFade {
+            0% { transform: translate(-50%, -50%) scale(3); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0; }
         }
 
         #preload-cache {
@@ -165,6 +185,8 @@
         let levelCatches = 0, totalCatchesNeeded = 15, bombsDroppedInAttempt = 0;
         let isTransitioningLevel = false;
         
+        let lastTapTime = 0; 
+        
         let db, auth, userId, highscoreRef, animationFrameHandle;
 
         function triggerHaptic(pattern) {
@@ -220,7 +242,6 @@
             document.getElementById('overlay').classList.add('hidden');
             document.getElementById('mad-bomber-img').style.display = 'block';
             document.getElementById('game-area').classList.add('hide-pointer');
-            document.getElementById('pause-toggle-button').classList.remove('opacity-0', 'pointer-events-none');
             initGameElements();
             updateScoreDisplay();
             gameLoop();
@@ -331,9 +352,20 @@
             }
         }
 
+        function showBigCountdown(num) {
+            const container = document.getElementById('game-area');
+            const el = document.createElement('div');
+            el.className = 'countdown-number';
+            el.textContent = num;
+            container.appendChild(el);
+            setTimeout(() => el.remove(), 400);
+        }
+
         function handleCatch(idx, b, topY) {
             score++;
             levelCatches++;
+            const left = totalCatchesNeeded - levelCatches;
+            if (left <= 5 && left > 0) showBigCountdown(left);
             updateScoreDisplay();
             triggerHaptic(20);
             const theme = THEMES[currentThemeId];
@@ -375,7 +407,7 @@
             setTimeout(() => { if (isLast) endGame(); else resume(); }, (toEx.length * EXPLOSION_CHAIN_DELAY) + 500);
         }
 
-        function resume() { if (isTransitioningLevel) return; showTemporaryMessage("", ""); isGamePaused = false; updatePauseButton(); gameLoop(); }
+        function resume() { if (isTransitioningLevel) return; showTemporaryMessage("", ""); isGamePaused = false; gameLoop(); }
 
         function endGame() {
             isGameOver = true; isGamePaused = true;
@@ -383,7 +415,6 @@
             if (animationFrameHandle) cancelAnimationFrame(animationFrameHandle);
             if (score > highscore && highscoreRef) setDoc(highscoreRef, { score, timestamp: new Date() }, { merge: true });
             document.getElementById('game-area').classList.remove('hide-pointer');
-            document.getElementById('pause-toggle-button').classList.add('opacity-0', 'pointer-events-none');
             showThemeSelection(true);
         }
 
@@ -410,7 +441,7 @@
         }
 
         function updateScoreDisplay() {
-            document.getElementById('score-display').textContent = score;
+            document.getElementById('score-display').textContent = score.toString().padStart(6, '0');
             document.getElementById('highscore-display').textContent = highscore;
             document.getElementById('level-display').textContent = level;
             document.getElementById('left-display').textContent = Math.max(0, totalCatchesNeeded - levelCatches);
@@ -433,7 +464,7 @@
             const btns = document.getElementById('difficulty-buttons');
             overlay.classList.remove('hidden'); overlay.style.opacity = 1;
             btns.innerHTML = '';
-            if (isOver) msg.innerHTML = `<p class="text-4xl font-extrabold text-red-500 mb-4 uppercase italic">GAME OVER</p><p class="text-xl mb-2 text-gray-300">Final Score: ${score}</p><p class="text-lg mb-8 text-gray-400 font-mono">Reached Level ${level}</p>`;
+            if (isOver) msg.innerHTML = `<p class="text-4xl font-extrabold text-red-500 mb-4 uppercase italic">GAME OVER</p><p class="text-xl mb-2 text-gray-300">Score: ${score}</p><p class="text-lg mb-8 text-gray-400 font-mono">Level ${level}</p>`;
             else msg.innerHTML = `<p class="text-5xl font-extrabold text-yellow-400 mb-4 uppercase tracking-tighter italic">KABOOM!</p><p class="text-xl mb-8 text-gray-300">Select Version</p>`;
             Object.keys(THEMES).forEach(id => {
                 const b = document.createElement('button');
@@ -463,8 +494,8 @@
             btns.appendChild(back);
         }
 
-        function handleInput(e) {
-            if (isGameOver || isGamePaused) return;
+        function handleInteraction(e) {
+            if (isGameOver) return;
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const rect = document.getElementById('game-area').getBoundingClientRect();
             const hitbox = getCurrentHitbox();
@@ -472,18 +503,20 @@
             const imageLeft = (clientX - rect.left) - (hitbox.xOffset + hitbox.catchW / 2);
             bucketX = Math.max(minX, Math.min(imageLeft, maxX));
             document.getElementById('buckets-stack').style.left = `${bucketX}px`;
+
+            if (e.type === 'touchstart' || e.type === 'mousedown') {
+                const now = Date.now();
+                if (isGamePaused) {
+                    if (!isTransitioningLevel && document.getElementById('temp-message').textContent !== "OOPS!") togglePauseGesture();
+                } else {
+                    if (now - lastTapTime < 300) togglePauseGesture();
+                }
+                lastTapTime = now;
+            }
         }
 
-        function updatePauseButton() {
-            const play = document.getElementById('play-icon'), pause = document.getElementById('pause-icon');
-            if (isGamePaused) { play.classList.remove('hidden'); pause.classList.add('hidden'); }
-            else { play.classList.add('hidden'); pause.classList.remove('hidden'); }
-        }
-
-        function togglePause() {
-            if (isGameOver || isTransitioningLevel) return;
-            if (isGamePaused && document.getElementById('temp-message').textContent === "OOPS!") return;
-            isGamePaused = !isGamePaused; updatePauseButton();
+        function togglePauseGesture() {
+            isGamePaused = !isGamePaused;
             triggerHaptic(15);
             if (isGamePaused) showTemporaryMessage("PAUSED", "text-blue-400");
             else { showTemporaryMessage("GO!", "text-green-400"); gameLoop(); }
@@ -495,17 +528,17 @@
             if (text === "") { el.style.opacity = 0; return; }
             el.className = `absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-4xl font-black p-3 rounded-lg z-20 transition-opacity duration-300 ${color} shadow-2xl text-center uppercase italic`;
             el.style.opacity = 1;
-            if (text === "OOPS!" || text === "GO!" || text === "LEVEL COMPLETE!" || text.startsWith("LEVEL ")) { setTimeout(() => el.style.opacity = 0, 1500); }
+            if (text === "OOPS!" || text === "GO!" || text === "LEVEL COMPLETE!" || text.startsWith("LEVEL ")) setTimeout(() => el.style.opacity = 0, 1500);
         }
 
         window.onload = () => {
             initFirebase();
             showThemeSelection();
             const area = document.getElementById('game-area');
-            area.addEventListener('mousemove', handleInput);
-            area.addEventListener('touchstart', handleInput);
-            area.addEventListener('touchmove', handleInput);
-            document.getElementById('pause-toggle-button').onclick = togglePause;
+            area.addEventListener('mousemove', handleInteraction);
+            area.addEventListener('mousedown', handleInteraction);
+            area.addEventListener('touchstart', handleInteraction, { passive: false });
+            area.addEventListener('touchmove', handleInteraction, { passive: false });
         };
     </script>
 </head>
@@ -513,20 +546,24 @@
     <div id="preload-cache"></div>
 
     <div id="game-container" class="w-full flex flex-col items-center">
-        <!-- SCOREBOARD: Now at the very top -->
-        <div class="w-full max-w-[400px] bg-gray-900 p-3 rounded-t-lg shadow-2xl flex justify-between items-center text-lg font-mono border-t-2 border-x-2 border-yellow-500">
-            <div class="flex flex-col"><span class="text-[10px] text-gray-500 uppercase font-bold tracking-tighter">Score</span><span id="score-display" class="text-green-400 font-black leading-none">0</span></div>
+        <!-- CONDENSED SINGLE-ROW SCOREBOARD -->
+        <div class="w-full max-w-[400px] bg-gray-900 px-4 py-2 rounded-t-lg shadow-2xl flex justify-between items-center border-t-2 border-x-2 border-yellow-500 font-mono">
+            <div class="flex items-baseline gap-2">
+                <span class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">HI</span>
+                <span id="highscore-display" class="text-yellow-400 font-bold text-sm">0</span>
+            </div>
             
-            <div class="flex flex-col items-center border-x border-gray-800 px-6">
-                <span class="text-[10px] text-gray-500 uppercase font-bold tracking-tighter">Level</span><span id="level-display" class="text-white leading-none font-black">1</span>
-                <div class="flex gap-1 items-center mt-1"><span class="text-[9px] text-gray-600 font-bold uppercase">Left:</span><span id="left-display" class="text-yellow-400 text-xs font-black font-mono">15</span></div>
+            <div class="flex items-center gap-3">
+                <div class="flex items-baseline gap-1">
+                    <span class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">LVL</span>
+                    <span id="level-display" class="text-white font-bold text-sm">1</span>
+                </div>
+                <div class="bg-gray-800 px-2 py-0.5 rounded text-[10px] font-bold text-yellow-400">
+                    <span id="left-display">15</span> LEFT
+                </div>
             </div>
 
-            <button id="pause-toggle-button" class="text-gray-400 hover:text-white transition duration-150 p-1 rounded-full border border-gray-700 opacity-0 pointer-events-none hover:bg-gray-800">
-                <svg id="play-icon" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.26a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                <svg id="pause-icon" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 18a8 8 0 100-16 8 8 0 000 16zM15 9h-2M9 9h-2"></path></svg>
-            </button>
-            <div class="flex flex-col items-end"><span class="text-[10px] text-gray-500 uppercase font-bold tracking-tighter">High</span><span id="highscore-display" class="text-yellow-400 font-black leading-none text-right">0</span></div>
+            <div id="score-display" class="text-green-400 font-black text-lg tracking-wider">000000</div>
         </div>
 
         <!-- PLAY AREA -->
@@ -540,9 +577,11 @@
         </div>
     </div>
     
-    <div class="mt-4 text-[10px] text-gray-600 font-mono flex gap-4 uppercase tracking-widest">
+    <div class="mt-4 text-[9px] text-gray-700 font-mono flex flex-col gap-1 items-center uppercase tracking-widest text-center">
+        <p>Double-Tap to Pause • Single Tap to Resume</p>
         <span>Player ID: <span id="user-id-display">Connecting...</span></span>
     </div>
 </body>
 </html>
+
 
