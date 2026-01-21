@@ -70,7 +70,6 @@
             transition: opacity 0.3s;
         }
 
-        /* Countdown Number Animation */
         .countdown-number {
             position: absolute;
             top: 50%;
@@ -184,7 +183,6 @@
         let speedMultiplier = 1, madBomberSpeed = 1.5;
         let levelCatches = 0, totalCatchesNeeded = 15, bombsDroppedInAttempt = 0;
         let isTransitioningLevel = false;
-        
         let lastTapTime = 0; 
         
         let db, auth, userId, highscoreRef, animationFrameHandle;
@@ -221,6 +219,7 @@
                     userId = u.uid;
                     highscoreRef = doc(db, `/artifacts/${appId}/users/${userId}/highscores`, 'kaboom-score');
                     onSnapshot(highscoreRef, (d) => { if (d.exists()) highscore = d.data().score; updateScoreDisplay(); });
+                    document.getElementById('user-id-display').textContent = userId;
                 } else {
                     const t = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
                     if (t) await signInWithCustomToken(auth, t); else await signInAnonymously(auth);
@@ -297,7 +296,6 @@
             frame++;
             updateBomber();
             updateBombs();
-            document.getElementById('score-display').textContent = score;
             animationFrameHandle = requestAnimationFrame(gameLoop);
         }
 
@@ -355,7 +353,7 @@
         function showBigCountdown(num) {
             const container = document.getElementById('game-area');
             const el = document.createElement('div');
-            el.className = 'countdown-number';
+            el.className = 'countdown-number font-mono';
             el.textContent = num;
             container.appendChild(el);
             setTimeout(() => el.remove(), 400);
@@ -441,8 +439,9 @@
         }
 
         function updateScoreDisplay() {
+            // FIXED: Padding applied consistently here
             document.getElementById('score-display').textContent = score.toString().padStart(6, '0');
-            document.getElementById('highscore-display').textContent = highscore;
+            document.getElementById('highscore-display').textContent = highscore.toString().padStart(6, '0');
             document.getElementById('level-display').textContent = level;
             document.getElementById('left-display').textContent = Math.max(0, totalCatchesNeeded - levelCatches);
             const theme = THEMES[currentThemeId];
@@ -464,7 +463,7 @@
             const btns = document.getElementById('difficulty-buttons');
             overlay.classList.remove('hidden'); overlay.style.opacity = 1;
             btns.innerHTML = '';
-            if (isOver) msg.innerHTML = `<p class="text-4xl font-extrabold text-red-500 mb-4 uppercase italic">GAME OVER</p><p class="text-xl mb-2 text-gray-300">Score: ${score}</p><p class="text-lg mb-8 text-gray-400 font-mono">Level ${level}</p>`;
+            if (isOver) msg.innerHTML = `<p class="text-4xl font-extrabold text-red-500 mb-4 uppercase italic">GAME OVER</p><p class="text-xl mb-2 text-gray-300">Score: ${score.toString().padStart(6, '0')}</p><p class="text-lg mb-8 text-gray-400 font-mono text-sm">Level ${level}</p>`;
             else msg.innerHTML = `<p class="text-5xl font-extrabold text-yellow-400 mb-4 uppercase tracking-tighter italic">KABOOM!</p><p class="text-xl mb-8 text-gray-300">Select Version</p>`;
             Object.keys(THEMES).forEach(id => {
                 const b = document.createElement('button');
@@ -546,11 +545,11 @@
     <div id="preload-cache"></div>
 
     <div id="game-container" class="w-full flex flex-col items-center">
-        <!-- CONDENSED SINGLE-ROW SCOREBOARD -->
+        <!-- CONDENSED SCOREBOARD -->
         <div class="w-full max-w-[400px] bg-gray-900 px-4 py-2 rounded-t-lg shadow-2xl flex justify-between items-center border-t-2 border-x-2 border-yellow-500 font-mono">
-            <div class="flex items-baseline gap-2">
+            <div class="flex items-baseline gap-1.5">
                 <span class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">HI</span>
-                <span id="highscore-display" class="text-yellow-400 font-bold text-sm">0</span>
+                <span id="highscore-display" class="text-yellow-400 font-bold text-sm tracking-tight">000000</span>
             </div>
             
             <div class="flex items-center gap-3">
@@ -558,12 +557,12 @@
                     <span class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">LVL</span>
                     <span id="level-display" class="text-white font-bold text-sm">1</span>
                 </div>
-                <div class="bg-gray-800 px-2 py-0.5 rounded text-[10px] font-bold text-yellow-400">
+                <div class="bg-gray-800 px-2 py-0.5 rounded text-[10px] font-bold text-yellow-400 border border-gray-700">
                     <span id="left-display">15</span> LEFT
                 </div>
             </div>
 
-            <div id="score-display" class="text-green-400 font-black text-lg tracking-wider">000000</div>
+            <div id="score-display" class="text-green-400 font-black text-xl tracking-widest">000000</div>
         </div>
 
         <!-- PLAY AREA -->
