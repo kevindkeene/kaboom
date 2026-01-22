@@ -149,9 +149,9 @@
                     BACKGROUND: 'https://kevindkeene.github.io/kaboom/assets/kaboom-background.gif'
                 },
                 settings: {
-                    EASY: { baseBombSpeed: 2.0, initialDropInterval: 120, initialBomberSpeed: 1.0 },
-                    MEDIUM: { baseBombSpeed: 2.5, initialDropInterval: 100, initialBomberSpeed: 1.5 },
-                    HARD: { baseBombSpeed: 3.2, initialDropInterval: 70, initialBomberSpeed: 2.0 }
+                    EASY: { baseBombSpeed: 2.0, initialDropInterval: 120, initialBomberSpeed: 1.2, twitchChance: 0.005 },
+                    MEDIUM: { baseBombSpeed: 2.5, initialDropInterval: 100, initialBomberSpeed: 1.8, twitchChance: 0.015 },
+                    HARD: { baseBombSpeed: 3.2, initialDropInterval: 70, initialBomberSpeed: 2.5, twitchChance: 0.03 }
                 }
             },
             'alien-drop': {
@@ -184,9 +184,9 @@
                     BACKGROUND: 'https://kevindkeene.github.io/kaboom/assets/alien_background2.gif'
                 },
                 settings: {
-                    EASY: { baseBombSpeed: 2.5, initialDropInterval: 100, initialBomberSpeed: 1.5 },
-                    MEDIUM: { baseBombSpeed: 3.0, initialDropInterval: 80, initialBomberSpeed: 2.0 },
-                    HARD: { baseBombSpeed: 3.8, initialDropInterval: 60, initialBomberSpeed: 2.5 }
+                    EASY: { baseBombSpeed: 2.5, initialDropInterval: 100, initialBomberSpeed: 1.8, twitchChance: 0.01 },
+                    MEDIUM: { baseBombSpeed: 3.0, initialDropInterval: 80, initialBomberSpeed: 2.3, twitchChance: 0.02 },
+                    HARD: { baseBombSpeed: 3.8, initialDropInterval: 60, initialBomberSpeed: 3.0, twitchChance: 0.04 }
                 }
             }
         };
@@ -202,16 +202,16 @@
         let isTransitioningLevel = false;
         let lastTapTime = 0; 
         
-        // Multi-Highscore State
+        // --- ZIP LOGIC STATE ---
+        let madBomberTargetX = null;
+
         let themeHighscores = { 'classic': 0, 'alien-drop': 0 };
         let tickerIndex = 0;
         let tickerInterval;
 
         let db, auth, userId, highscoreRef, animationFrameHandle;
 
-        function triggerHaptic(pattern) {
-            if ("vibrate" in navigator) { navigator.vibrate(pattern); }
-        }
+        function triggerHaptic(pattern) { if ("vibrate" in navigator) { navigator.vibrate(pattern); } }
 
         function getCurrentHitbox() {
             const theme = THEMES[currentThemeId];
@@ -239,12 +239,10 @@
             onAuthStateChanged(auth, async (u) => {
                 if (u) {
                     userId = u.uid;
-                    // We store all high scores in a single document for easy rolling display
                     highscoreRef = doc(db, `/artifacts/${appId}/users/${userId}/highscores`, 'master-scores');
                     onSnapshot(highscoreRef, (d) => { 
                         if (d.exists()) {
                             themeHighscores = { ...themeHighscores, ...d.data() };
-                            // Calculate global high score (the highest of all)
                             highscore = Math.max(...Object.values(themeHighscores));
                             updateScoreDisplay(); 
                         }
@@ -262,21 +260,18 @@
             tickerInterval = setInterval(() => {
                 const themeIds = Object.keys(THEMES);
                 tickerIndex = (tickerIndex + 1) % themeIds.length;
-                
                 const themeId = themeIds[tickerIndex];
                 const themeTitle = THEMES[themeId].title;
                 const themeScore = (themeHighscores[themeId] || 0).toString().padStart(6, '0');
-
                 const tickerInner = document.getElementById('ticker-inner');
                 if (tickerInner) {
-                    // Update and trigger the "roll"
                     tickerInner.style.transform = 'translateY(100%)';
                     setTimeout(() => {
                         document.getElementById('ticker-theme-name').textContent = themeTitle;
                         document.getElementById('ticker-theme-score').textContent = themeScore;
                         tickerInner.style.transition = 'none';
                         tickerInner.style.transform = 'translateY(-100%)';
-                        tickerInner.offsetHeight; // trigger reflow
+                        tickerInner.offsetHeight; 
                         tickerInner.style.transition = 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)';
                         tickerInner.style.transform = 'translateY(0)';
                     }, 500);
@@ -284,34 +279,26 @@
             }, 3000);
         }
 
-        function stopHighscoreTicker() {
-            if (tickerInterval) clearInterval(tickerInterval);
-        }
-
         function startGame(themeId, diff) {
             isGameOver = false; isGamePaused = false;
             currentThemeId = themeId; currentDifficulty = diff;
             const theme = THEMES[themeId];
             const settings = theme.settings[diff];
-            
-            stopHighscoreTicker();
+            if (tickerInterval) clearInterval(tickerInterval);
             preloadThemeAssets(themeId);
             if (animationFrameHandle) cancelAnimationFrame(animationFrameHandle);
             
             score = 0; lives = INITIAL_BUCKET_COUNT; frame = 0; speedMultiplier = 1; level = 1;
             levelCatches = 0; totalCatchesNeeded = 15; bombsDroppedInAttempt = 0; isTransitioningLevel = false;
-
-            madBomberX = 0; madBomberSpeed = settings.initialBomberSpeed;
+            madBomberX = GAME_AREA_WIDTH / 2; madBomberSpeed = settings.initialBomberSpeed;
+            madBomberTargetX = null;
+            
             bombs.forEach(b => b.element.remove()); bombs = [];
-
             document.getElementById('overlay').classList.add('hidden');
             document.getElementById('mad-bomber-img').style.display = 'block';
             document.getElementById('game-area').classList.add('hide-pointer');
-            
-            // Switch header view to In-Game Stats
             document.getElementById('header-stats-play').classList.remove('hidden');
             document.getElementById('header-stats-menu').classList.add('hidden');
-
             initGameElements();
             updateScoreDisplay();
             gameLoop();
@@ -372,18 +359,57 @@
 
         function updateBomber() {
             const theme = THEMES[currentThemeId];
-            madBomberX += madBomberDirection * (madBomberSpeed * speedMultiplier);
-            if (madBomberX > (GAME_AREA_WIDTH - theme.bomberDim.w)) { madBomberDirection = -1; madBomberX = GAME_AREA_WIDTH - theme.bomberDim.w; }
-            else if (madBomberX < 0) { madBomberDirection = 1; madBomberX = 0; }
-            document.getElementById('mad-bomber-img').style.left = `${madBomberX}px`;
             const settings = theme.settings[currentDifficulty];
+            const baseSpeed = madBomberSpeed * speedMultiplier;
+
+            if (madBomberTargetX !== null) {
+                // ZIP MODE: Move at 4x speed toward target
+                const zipSpeed = baseSpeed * 4;
+                const dist = madBomberTargetX - madBomberX;
+                if (Math.abs(dist) < zipSpeed) {
+                    madBomberX = madBomberTargetX;
+                    madBomberTargetX = null;
+                } else {
+                    madBomberX += Math.sign(dist) * zipSpeed;
+                }
+            } else {
+                // NORMAL MODE: Erratic twitching
+                const currentTwitchChance = settings.twitchChance + (level * 0.005);
+                if (Math.random() < currentTwitchChance) {
+                    madBomberDirection *= -1;
+                }
+                madBomberX += madBomberDirection * baseSpeed;
+
+                // Wall bounce logic
+                if (madBomberX > (GAME_AREA_WIDTH - theme.bomberDim.w)) { 
+                    madBomberDirection = -1; 
+                    madBomberX = GAME_AREA_WIDTH - theme.bomberDim.w; 
+                } else if (madBomberX < 0) { 
+                    madBomberDirection = 1; 
+                    madBomberX = 0; 
+                }
+            }
+            
+            document.getElementById('mad-bomber-img').style.left = `${madBomberX}px`;
             madBomberSpeed = Math.min(settings.initialBomberSpeed + (Math.floor(score / 30) * 0.1), 8);
+
+            // Drop logic
             if (bombsDroppedInAttempt < totalCatchesNeeded) {
                 const dropInt = Math.max(8, settings.initialDropInterval - (level * 5) - Math.floor(score / 15));
                 if (frame % Math.floor(dropInt) === 0) {
                     const x = madBomberX + (theme.bomberDim.w / 2) - (theme.bombDim.w / 2);
                     createBomb(x, theme.bomberDim.h);
                     bombsDroppedInAttempt++;
+
+                    // SET NEW ZIP TARGET
+                    const minJumpDist = GAME_AREA_WIDTH * 0.4;
+                    let newX = Math.random() * (GAME_AREA_WIDTH - theme.bomberDim.w);
+                    let attempts = 0;
+                    while (Math.abs(newX - madBomberX) < minJumpDist && attempts < 10) {
+                        newX = Math.random() * (GAME_AREA_WIDTH - theme.bomberDim.w);
+                        attempts++;
+                    }
+                    madBomberTargetX = newX;
                 }
             }
         }
@@ -482,21 +508,14 @@
             isGameOver = true; isGamePaused = true;
             triggerHaptic([200, 100, 200]);
             if (animationFrameHandle) cancelAnimationFrame(animationFrameHandle);
-            
-            // Save Multi-Theme Highscores
             if (score > (themeHighscores[currentThemeId] || 0) && highscoreRef) {
-                const updateData = {};
-                updateData[currentThemeId] = score;
+                const updateData = {}; updateData[currentThemeId] = score;
                 setDoc(highscoreRef, updateData, { merge: true });
             }
-
             document.getElementById('game-area').classList.remove('hide-pointer');
-            
-            // Switch header view back to Menu/Ticker
             document.getElementById('header-stats-play').classList.add('hidden');
             document.getElementById('header-stats-menu').classList.remove('hidden');
             startHighscoreTicker();
-
             showThemeSelection(true);
         }
 
@@ -527,7 +546,6 @@
             document.getElementById('highscore-display').textContent = highscore.toString().padStart(6, '0');
             document.getElementById('level-display').textContent = level;
             document.getElementById('left-display').textContent = Math.max(0, totalCatchesNeeded - levelCatches);
-            
             const theme = THEMES[currentThemeId];
             const stack = document.getElementById('buckets-stack');
             if (theme.isStacked) {
@@ -586,21 +604,16 @@
             const imageLeft = (clientX - rect.left) - (hitbox.xOffset + hitbox.catchW / 2);
             bucketX = Math.max(minX, Math.min(imageLeft, maxX));
             document.getElementById('buckets-stack').style.left = `${bucketX}px`;
-
             if (e.type === 'touchstart' || e.type === 'mousedown') {
                 const now = Date.now();
-                if (isGamePaused) {
-                    if (!isTransitioningLevel && document.getElementById('temp-message').textContent !== "OOPS!") togglePauseGesture();
-                } else {
-                    if (now - lastTapTime < 300) togglePauseGesture();
-                }
+                if (isGamePaused) { if (!isTransitioningLevel && document.getElementById('temp-message').textContent !== "OOPS!") togglePauseGesture(); } 
+                else { if (now - lastTapTime < 300) togglePauseGesture(); }
                 lastTapTime = now;
             }
         }
 
         function togglePauseGesture() {
-            isGamePaused = !isGamePaused;
-            triggerHaptic(15);
+            isGamePaused = !isGamePaused; triggerHaptic(15);
             if (isGamePaused) showTemporaryMessage("PAUSED", "text-blue-400");
             else { showTemporaryMessage("GO!", "text-green-400"); gameLoop(); }
         }
@@ -628,30 +641,22 @@
 </head>
 <body class="flex flex-col items-center justify-start min-h-screen p-2 pt-4">
     <div id="preload-cache"></div>
-
     <div id="game-container" class="w-full flex flex-col items-center">
-        <!-- HEADER -->
         <div class="w-full max-w-[400px] bg-gray-900 px-4 py-2 rounded-t-lg shadow-2xl flex justify-between items-center border-t-2 border-x-2 border-yellow-500 font-mono">
-            <!-- LEFT: HI (Highest score across all modes) -->
             <div class="flex items-baseline gap-1.5 min-w-[70px]">
-                <span class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">HI</span>
+                <span class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter leading-none">HI</span>
                 <span id="highscore-display" class="text-yellow-400 font-bold text-sm tracking-tight leading-none">000000</span>
             </div>
-            
-            <!-- CENTER: Dynamic Area (Ticker or Stats) -->
             <div id="center-header-area" class="flex-1 flex justify-center items-center px-2">
-                <!-- IN-GAME VIEW -->
                 <div id="header-stats-play" class="hidden flex items-center gap-3">
                     <div class="flex items-baseline gap-1">
-                        <span class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">LVL</span>
+                        <span class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter leading-none">LVL</span>
                         <span id="level-display" class="text-white font-bold text-sm leading-none">1</span>
                     </div>
                     <div class="bg-gray-800 px-2 py-0.5 rounded text-[10px] font-bold text-yellow-400 border border-gray-700 leading-none">
                         <span id="left-display">15</span> LEFT
                     </div>
                 </div>
-
-                <!-- MENU VIEW (Rolling Ticker) -->
                 <div id="header-stats-menu" class="ticker-container w-full">
                     <div id="ticker-inner" class="ticker-item">
                         <span id="ticker-theme-name" class="text-[9px] text-gray-500 font-bold uppercase tracking-widest leading-none mb-1">Classic</span>
@@ -659,12 +664,8 @@
                     </div>
                 </div>
             </div>
-
-            <!-- RIGHT: Current Score -->
-            <div id="score-display" class="text-green-400 font-black text-xl tracking-widest min-w-[90px] text-right">000000</div>
+            <div id="score-display" class="text-green-400 font-black text-xl tracking-widest min-w-[90px] text-right leading-none">000000</div>
         </div>
-
-        <!-- PLAY AREA -->
         <div id="game-area" class="w-full h-[600px] max-w-[400px] rounded-b-lg relative shadow-2xl overflow-hidden border-b-2 border-x-2 border-gray-800">
             <img id="mad-bomber-img" class="mad-bomber-img" style="display: none;" alt="Bomber">
             <div id="buckets-stack" class="bucket-stack"></div>
@@ -674,11 +675,11 @@
             </div>
         </div>
     </div>
-    
     <div class="mt-4 text-[9px] text-gray-700 font-mono flex flex-col gap-1 items-center uppercase tracking-widest text-center">
         <p>Double-Tap to Pause • Single Tap to Resume</p>
         <span>Player ID: <span id="user-id-display">Connecting...</span></span>
     </div>
 </body>
 </html>
+
 
