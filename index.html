@@ -9,7 +9,7 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800;900&display=swap');
         
-        body { font-family: 'Inter', sans-serif; background-color: #111827; color: #f9fafb; margin: 0; overflow: hidden; }
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f9fafb; margin: 0; overflow: hidden; }
         
         #game-area {
             position: relative;
@@ -37,6 +37,9 @@
             top: 0;
             left: 0;
             z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .bucket-stack {
@@ -64,22 +67,19 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: rgba(0, 0, 0, 0.9);
-            backdrop-filter: blur(4px);
+            background: rgba(0, 0, 0, 0.95);
+            backdrop-filter: blur(8px);
             z-index: 300;
             transition: opacity 0.3s;
         }
 
         @keyframes recordPulse {
             0% { transform: scale(1); text-shadow: 0 0 0px gold; }
-            30% { transform: scale(1.15); text-shadow: 0 0 15px gold, 0 0 5px gold; }
+            30% { transform: scale(1.1); text-shadow: 0 0 15px gold, 0 0 5px gold; }
             100% { transform: scale(1); text-shadow: 0 0 0px gold; }
         }
 
-        .pulse-active {
-            animation: recordPulse 0.3s ease-out;
-            display: inline-block;
-        }
+        .pulse-active { animation: recordPulse 0.3s ease-out; }
 
         .countdown-number {
             position: absolute;
@@ -101,13 +101,13 @@
         }
 
         .ticker-container {
-            height: 32px;
+            height: 40px;
             overflow: hidden;
             position: relative;
         }
         
         .ticker-item {
-            height: 32px;
+            height: 40px;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -115,10 +115,25 @@
             transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
+        .initials-input {
+            background: #000;
+            border: 4px solid #ef4444;
+            color: #ef4444;
+            font-family: monospace;
+            font-size: 3rem;
+            font-weight: 900;
+            text-align: center;
+            width: 220px;
+            padding: 10px;
+            text-transform: uppercase;
+            letter-spacing: 10px;
+            outline: none;
+            margin-bottom: 20px;
+        }
+
         #preload-cache {
             position: absolute;
-            width: 0;
-            height: 0;
+            width: 0; height: 0;
             overflow: hidden;
             opacity: 0;
             pointer-events: none;
@@ -137,17 +152,12 @@
         
         const THEMES = {
             'classic': {
-                title: 'Classic',
-                id: 'classic',
-                isStacked: true,
-                bomberDim: { w: 21, h: 50 }, 
-                bombDim: { w: 15, h: 28 },
-                bucketDim: { w: 50, h: 20, gap: 2 },
-                splashDim: { w: 33, h: 46 },
-                explosionDim: { w: 80, h: 64 }, 
-                catchDuration: 780, 
-                missDuration: 1240, 
+                title: 'Classic', id: 'classic', isStacked: true,
+                bomberDim: { w: 21, h: 50 }, bombDim: { w: 15, h: 28 },
+                bucketDim: { w: 50, h: 20, gap: 2 }, splashDim: { w: 33, h: 46 },
+                explosionDim: { w: 80, h: 64 }, catchDuration: 780, missDuration: 1240,
                 hitbox: { xOffset: 0, catchW: 50, yOffset: 0, catchH: 20 }, 
+                emoji: { bomber: '💣', bomb: '🧨', bucket: '🗑️' },
                 graphics: {
                     BOMBER: 'https://kevindkeene.github.io/kaboom/assets/bomber336x800.gif',
                     BOMB: 'https://kevindkeene.github.io/kaboom/assets/bomb240x448.gif',
@@ -163,21 +173,16 @@
                 }
             },
             'alien-drop': {
-                title: 'Alien Drop',
-                id: 'alien-drop',
-                isStacked: false,
-                bomberDim: { w: 50, h: 50 }, 
-                bombDim: { w: 32, h: 26 }, 
-                bucketDim: { w: 220, h: 80, gap: 0 }, 
-                splashDim: { w: 80, h: 80 },
-                explosionDim: { w: 80, h: 80 },
-                catchDuration: 900, 
-                missDuration: 1240, 
+                title: 'Alien Drop', id: 'alien-drop', isStacked: false,
+                bomberDim: { w: 50, h: 50 }, bombDim: { w: 32, h: 26 }, 
+                bucketDim: { w: 220, h: 80, gap: 0 }, splashDim: { w: 80, h: 80 },
+                explosionDim: { w: 80, h: 80 }, catchDuration: 900, missDuration: 1240,
                 hitboxByLife: [
                     { xOffset: 115, catchW: 100, yOffset: 38, catchH: 18 }, 
                     { xOffset: 115, catchW: 100, yOffset: 19, catchH: 37 }, 
                     { xOffset: 115, catchW: 100, yOffset: 0,  catchH: 56 }  
                 ],
+                emoji: { bomber: '🛸', bomb: '🐄', bucket: '🚜' },
                 graphics: {
                     BOMBER: 'https://kevindkeene.github.io/kaboom/assets/ufo2-400x400.gif', 
                     BOMB: 'https://kevindkeene.github.io/kaboom/assets/cow3.gif', 
@@ -209,6 +214,8 @@
         let isTransitioningLevel = false;
         let lastTapTime = 0, madBomberTargetX = null;
         let worldRecords = { 'classic': 0, 'alien-drop': 0 };
+        let worldInitials = { 'classic': '---', 'alien-drop': '---' };
+        let worldLevels = { 'classic': 1, 'alien-drop': 1 }; 
         let tickerIndex = 0, tickerInterval;
         let db, auth, userId, globalScoresRef, animationFrameHandle;
 
@@ -220,78 +227,58 @@
             return theme.hitboxByLife[Math.max(0, lives - 1)];
         }
 
-        function preloadThemeAssets(themeId) {
-            const theme = THEMES[themeId];
-            const cache = document.getElementById('preload-cache');
-            cache.innerHTML = ''; 
-            const assets = [theme.graphics.BOMBER, theme.graphics.BOMB, theme.graphics.EXPLOSION, theme.graphics.SPLASH, theme.graphics.BACKGROUND];
-            if (theme.graphics.BUCKET_LAYERS) assets.push(...theme.graphics.BUCKET_LAYERS);
-            if (theme.graphics.BUCKET) assets.push(theme.graphics.BUCKET);
-            assets.forEach(url => { const img = new Image(); img.src = url; cache.appendChild(img); });
-        }
-
         async function initFirebase() {
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'kaboom-arcade';
             const firebaseConfigString = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
             if (!firebaseConfigString) return;
-            const firebaseConfig = JSON.parse(firebaseConfigString);
-
-            const app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
-            auth = getAuth(app);
-
-            const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-            try {
-                if (initialAuthToken) await signInWithCustomToken(auth, initialAuthToken);
-                else await signInAnonymously(auth);
-            } catch (e) { console.error("Auth failed:", e); }
-
+            const app = initializeApp(JSON.parse(firebaseConfigString));
+            db = getFirestore(app); auth = getAuth(app);
+            const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+            try { if (token) await signInWithCustomToken(auth, token); else await signInAnonymously(auth); } catch (e) {}
             onAuthStateChanged(auth, (u) => {
                 if (u) {
-                    userId = u.uid;
-                    document.getElementById('user-id-display').textContent = userId;
+                    userId = u.uid; document.getElementById('user-id-display').textContent = userId;
                     globalScoresRef = doc(db, 'artifacts', appId, 'public', 'data', 'globalScores', 'hallOfFame');
                     onSnapshot(globalScoresRef, (snap) => {
                         if (snap.exists()) {
                             const data = snap.data();
-                            worldRecords = { 'classic': data.classic || 0, 'alien-drop': data['alien-drop'] || 0 };
+                            Object.keys(THEMES).forEach(id => {
+                                worldRecords[id] = data[id] || 0;
+                                worldInitials[id] = data[id + '_initials'] || '---';
+                                worldLevels[id] = data[id + '_level'] || 1;
+                            });
                             const numericScores = Object.values(worldRecords).filter(val => typeof val === 'number');
                             globalHighscore = numericScores.length > 0 ? Math.max(...numericScores) : 0;
                             updateScoreDisplay();
                         }
-                    }, (err) => console.error("Firestore sync issue:", err));
+                    });
                 }
             });
         }
 
-        async function saveScoreIfWorldRecord(themeId, currentScore) {
+        async function saveWorldRecord(themeId, currentScore, currentLevel, initials) {
             if (!userId || !globalScoresRef) return;
-            if (currentScore > (worldRecords[themeId] || 0)) {
-                const update = {}; update[themeId] = currentScore;
-                update[themeId + '_holder'] = userId;
-                try { await setDoc(globalScoresRef, update, { merge: true }); } 
-                catch (e) { console.error("Error saving record:", e); }
-            }
+            const update = {}; update[themeId] = currentScore;
+            update[themeId + '_initials'] = initials; update[themeId + '_level'] = currentLevel;
+            update[themeId + '_holder'] = userId;
+            try { await setDoc(globalScoresRef, update, { merge: true }); triggerHaptic([50, 50, 50, 50, 100]); } 
+            catch (e) {}
         }
 
         function startHighscoreTicker() {
             if (tickerInterval) clearInterval(tickerInterval);
             tickerInterval = setInterval(() => {
-                const themeIds = Object.keys(THEMES);
-                tickerIndex = (tickerIndex + 1) % themeIds.length;
-                const themeId = themeIds[tickerIndex];
-                const themeTitle = THEMES[themeId].title + " WORLD BEST";
-                const themeScoreStr = (worldRecords[themeId] || 0).toString().padStart(6, '0');
+                const ids = Object.keys(THEMES);
+                tickerIndex = (tickerIndex + 1) % ids.length;
+                const id = ids[tickerIndex];
                 const tickerInner = document.getElementById('ticker-inner');
                 if (tickerInner) {
                     tickerInner.style.transform = 'translateY(100%)';
                     setTimeout(() => {
-                        document.getElementById('ticker-theme-name').textContent = themeTitle;
-                        document.getElementById('ticker-theme-score').textContent = themeScoreStr;
-                        tickerInner.style.transition = 'none';
-                        tickerInner.style.transform = 'translateY(-100%)';
-                        tickerInner.offsetHeight; 
-                        tickerInner.style.transition = 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)';
+                        document.getElementById('ticker-theme-name').textContent = THEMES[id].title + " WORLD BEST";
+                        document.getElementById('ticker-theme-score').textContent = `${worldInitials[id]} - ${(worldRecords[id]||0).toString().padStart(6,'0')} L${worldLevels[id]||1}`;
+                        tickerInner.style.transition = 'none'; tickerInner.style.transform = 'translateY(-100%)';
+                        tickerInner.offsetHeight; tickerInner.style.transition = 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)';
                         tickerInner.style.transform = 'translateY(0)';
                     }, 500);
                 }
@@ -299,47 +286,35 @@
         }
 
         function startGame(themeId, diff) {
-            try {
-                currentThemeId = themeId; currentDifficulty = diff;
-                const theme = THEMES[themeId];
-                const settings = theme.settings[diff];
-                
-                if (tickerInterval) clearInterval(tickerInterval);
-                preloadThemeAssets(themeId);
-                if (animationFrameHandle) cancelAnimationFrame(animationFrameHandle);
-                
-                score = 0; lives = INITIAL_BUCKET_COUNT; frame = 0; speedMultiplier = 1; level = 1;
-                levelCatches = 0; totalCatchesNeeded = 15; bombsDroppedInAttempt = 0; isTransitioningLevel = false;
-                madBomberX = GAME_AREA_WIDTH / 2; madBomberSpeed = settings.initialBomberSpeed;
-                madBomberTargetX = null;
-                bombs.forEach(b => { if(b.el) b.el.remove(); }); bombs = [];
-                
-                initGameElements();
-                updateScoreDisplay();
-                
-                document.getElementById('overlay').classList.add('hidden');
-                document.getElementById('mad-bomber-img').style.display = 'block';
-                document.getElementById('game-area').classList.add('hide-pointer');
-                document.getElementById('header-stats-play').classList.remove('hidden');
-                document.getElementById('header-stats-menu').classList.add('hidden');
-                
-                isGameOver = false; 
-                isGamePaused = false;
-                gameLoop();
-            } catch (err) {
-                console.error("Critical Start Error:", err);
-            }
+            isGameOver = false; currentThemeId = themeId; currentDifficulty = diff;
+            const theme = THEMES[themeId];
+            if (tickerInterval) clearInterval(tickerInterval);
+            if (animationFrameHandle) cancelAnimationFrame(animationFrameHandle);
+            
+            score = 0; lives = INITIAL_BUCKET_COUNT; frame = 0; speedMultiplier = 1; level = 1;
+            levelCatches = 0; totalCatchesNeeded = 15; bombsDroppedInAttempt = 0; isTransitioningLevel = false;
+            madBomberX = GAME_AREA_WIDTH / 2; madBomberSpeed = theme.settings[diff].initialBomberSpeed;
+            madBomberTargetX = null;
+            bombs.forEach(b => { if(b.el) b.el.remove(); }); bombs = [];
+            
+            initGameElements();
+            updateScoreDisplay();
+            
+            document.getElementById('overlay').classList.add('hidden');
+            document.getElementById('mad-bomber-img').style.display = 'flex';
+            document.getElementById('game-area').classList.add('hide-pointer');
+            document.getElementById('header-stats-play').classList.remove('hidden');
+            document.getElementById('header-stats-menu').classList.add('hidden');
+            
+            isGamePaused = false;
+            gameLoop();
         }
 
         function startNextLevel() {
-            level++; isTransitioningLevel = false;
-            levelCatches = 0; bombsDroppedInAttempt = 0;
-            totalCatchesNeeded = 15 + (level * 5); 
-            speedMultiplier += 0.15;
+            level++; isTransitioningLevel = false; levelCatches = 0; bombsDroppedInAttempt = 0;
+            totalCatchesNeeded = 15 + (level * 5); speedMultiplier += 0.15;
             showTemporaryMessage(`LEVEL ${level}`, "text-yellow-400");
-            updateScoreDisplay();
-            isGamePaused = false; gameLoop();
-            triggerHaptic([100, 50, 100]);
+            updateScoreDisplay(); isGamePaused = false; gameLoop(); triggerHaptic([100, 50, 100]);
         }
 
         function initGameElements() {
@@ -351,28 +326,32 @@
             stack.style.width = `${theme.bucketDim.w}px`;
             
             if (theme.isStacked) {
-                for (let i = 0; i < INITIAL_BUCKET_COUNT; i++) {
+                for (let i = 0; i < lives; i++) {
                     const b = document.createElement('img');
                     b.src = theme.graphics.BUCKET; b.className = 'bucket-img pixel-art';
-                    b.style.width = `${theme.bucketDim.w}px`; b.style.height = `${theme.bucketDim.h}px`;
+                    b.onerror = () => { b.style.display='none'; stack.innerHTML += `<div class="text-2xl">${theme.emoji.bucket}</div>`; };
                     stack.appendChild(b); bucketElements.push(b);
                 }
             } else {
                 const b = document.createElement('img');
                 b.id = 'single-catcher-img'; b.className = 'bucket-img pixel-art';
-                b.style.width = `${theme.bucketDim.w}px`; b.style.height = `${theme.bucketDim.h}px`;
-                b.src = theme.graphics.BUCKET_LAYERS[lives]; // Set immediately
+                b.src = theme.graphics.BUCKET_LAYERS[lives];
+                b.onerror = () => { b.style.display='none'; stack.innerHTML = `<div class="text-5xl">${theme.emoji.bucket}</div>`; };
                 stack.appendChild(b); bucketElements.push(b);
             }
-            
-            // Forces bucket to be sized and placed immediately
             const h = theme.isStacked ? lives * (theme.bucketDim.h + theme.bucketDim.gap) : theme.bucketDim.h;
             stack.style.height = `${h}px`; stack.style.top = `${GAME_AREA_HEIGHT - h}px`;
 
-            bomberEl.src = theme.graphics.BOMBER;
-            bomberEl.className = 'mad-bomber-img pixel-art';
+            // Reset Bomber Image
+            bomberEl.innerHTML = '';
+            const bImg = document.createElement('img');
+            bImg.src = theme.graphics.BOMBER; bImg.className = 'pixel-art w-full h-full';
+            bImg.onerror = () => { bImg.style.display='none'; bomberEl.innerHTML = `<span class="text-4xl">${theme.emoji.bomber}</span>`; };
+            bomberEl.appendChild(bImg);
             bomberEl.style.width = `${theme.bomberDim.w}px`; bomberEl.style.height = `${theme.bomberDim.h}px`;
             bomberEl.style.left = `${madBomberX}px`;
+            
+            document.getElementById('life-icon').src = theme.isStacked ? theme.graphics.BUCKET : theme.graphics.BUCKET_LAYERS[1];
         }
 
         function gameLoop() {
@@ -391,8 +370,7 @@
                 if (Math.abs(dist) < zipSpeed) { madBomberX = madBomberTargetX; madBomberTargetX = null; } 
                 else { madBomberX += Math.sign(dist) * zipSpeed; }
             } else {
-                const twitch = settings.twitchChance + (level * 0.005);
-                if (Math.random() < twitch) madBomberDirection *= -1;
+                if (Math.random() < (settings.twitchChance + (level * 0.005))) madBomberDirection *= -1;
                 madBomberX += madBomberDirection * baseSpeed;
                 if (madBomberX > (GAME_AREA_WIDTH - theme.bomberDim.w)) { madBomberDirection = -1; madBomberX = GAME_AREA_WIDTH - theme.bomberDim.w; } 
                 else if (madBomberX < 0) { madBomberDirection = 1; madBomberX = 0; }
@@ -406,8 +384,7 @@
                     bombsDroppedInAttempt++;
                     const minJump = GAME_AREA_WIDTH * 0.4;
                     let newX = Math.random() * (GAME_AREA_WIDTH - theme.bomberDim.w);
-                    let attempts = 0;
-                    while (Math.abs(newX - madBomberX) < minJump && attempts < 10) { newX = Math.random() * (GAME_AREA_WIDTH - theme.bomberDim.w); attempts++; }
+                    let att = 0; while (Math.abs(newX - madBomberX) < minJump && att < 10) { newX = Math.random() * (GAME_AREA_WIDTH - theme.bomberDim.w); att++; }
                     madBomberTargetX = newX;
                 }
             }
@@ -415,17 +392,21 @@
 
         function createBomb(x, y) {
             const theme = THEMES[currentThemeId];
-            const el = document.createElement('img');
-            el.src = theme.graphics.BOMB; el.className = 'bomb-img pixel-art';
+            const el = document.createElement('div');
+            el.className = 'bomb-img pixel-art absolute flex items-center justify-center';
             el.style.width = `${theme.bombDim.w}px`; el.style.height = `${theme.bombDim.h}px`;
             el.style.left = `${x}px`; el.style.top = `${y}px`;
+            const bImg = document.createElement('img');
+            bImg.src = theme.graphics.BOMB; bImg.className = 'w-full h-full';
+            bImg.onerror = () => { bImg.style.display='none'; el.innerHTML = `<span style="font-size: ${theme.bombDim.h}px">${theme.emoji.bomb}</span>`; };
+            el.appendChild(bImg);
             document.getElementById('game-area').appendChild(el);
             bombs.push({ x, y, el, speed: (theme.settings[currentDifficulty].baseBombSpeed + (level * 0.1)) * speedMultiplier });
         }
 
         function updateBombs() {
-            const theme = THEMES[currentThemeId];
             const hitbox = getCurrentHitbox();
+            const theme = THEMES[currentThemeId];
             let catchTopY = theme.isStacked ? GAME_AREA_HEIGHT - (lives * (theme.bucketDim.h + theme.bucketDim.gap)) : GAME_AREA_HEIGHT - theme.bucketDim.h + hitbox.yOffset;
             for (let i = bombs.length - 1; i >= 0; i--) {
                 if (isGamePaused) break;
@@ -438,32 +419,25 @@
             }
             if (!isGameOver && levelCatches >= totalCatchesNeeded && bombs.length === 0 && !isTransitioningLevel && !isGamePaused) {
                 isTransitioningLevel = true; isGamePaused = true;
-                showTemporaryMessage("LEVEL COMPLETE!", "text-green-400");
-                setTimeout(startNextLevel, 2000);
+                showTemporaryMessage("LEVEL COMPLETE!", "text-green-400"); setTimeout(startNextLevel, 2000);
             }
         }
 
         function handleCatch(idx, b, topY) {
-            const theme = THEMES[currentThemeId];
-            const recordBeforeCatch = worldRecords[currentThemeId] || 0;
-            score++;
-            levelCatches++;
-            const left = totalCatchesNeeded - levelCatches;
-            if (left <= 5 && left > 0) {
+            const record = worldRecords[currentThemeId] || 0;
+            score++; levelCatches++;
+            if (totalCatchesNeeded - levelCatches <= 5 && totalCatchesNeeded - levelCatches > 0) {
                 const el = document.createElement('div'); el.className = 'countdown-number font-mono';
-                el.textContent = left; document.getElementById('game-area').appendChild(el);
+                el.textContent = totalCatchesNeeded - levelCatches; document.getElementById('game-area').appendChild(el);
                 setTimeout(() => el.remove(), 400);
             }
-            if (score > recordBeforeCatch) {
-                const hiEl = document.getElementById('highscore-display');
-                hiEl.classList.remove('pulse-active');
-                void hiEl.offsetWidth; 
-                hiEl.classList.add('pulse-active');
+            if (score > record) {
+                const hi = document.getElementById('hi-score-container');
+                hi.classList.remove('pulse-active'); void hi.offsetWidth; hi.classList.add('pulse-active');
                 triggerHaptic(30); 
             }
-            updateScoreDisplay();
-            triggerHaptic(20);
-            createSplash(b.x + (theme.bombDim.w / 2), topY);
+            updateScoreDisplay(); triggerHaptic(20);
+            createSplash(b.x + (THEMES[currentThemeId].bombDim.w / 2), topY);
             if (b.el) b.el.remove(); bombs.splice(idx, 1);
             if (score > 0 && score % 1000 === 0 && lives < INITIAL_BUCKET_COUNT) {
                 lives++; showTemporaryMessage("Extra Layer!", "text-green-400"); updateScoreDisplay();
@@ -472,17 +446,13 @@
 
         function handleMiss(idx, b) {
             if (isGamePaused && !isGameOver && lives > 0) return;
-            isGamePaused = true;
-            lives--; 
-            levelCatches = 0; bombsDroppedInAttempt = 0;
+            isGamePaused = true; lives--; levelCatches = 0; bombsDroppedInAttempt = 0;
             triggerHaptic([100, 50, 150]);
-            const theme = THEMES[currentThemeId];
             if (lives > 0) speedMultiplier = Math.max(1.0, speedMultiplier - 0.15);
-            createExplosion(b.x + (theme.bombDim.w / 2), b.y + (theme.bombDim.h / 2));
+            createExplosion(b.x + (THEMES[currentThemeId].bombDim.w / 2), b.y + (THEMES[currentThemeId].bombDim.h / 2));
             if (b.el) b.el.remove(); bombs.splice(idx, 1);
-            updateScoreDisplay();
-            showTemporaryMessage("OOPS!", "text-red-500");
-            setTimeout(() => { detonateRemaining(lives <= 0); }, theme.missDuration);
+            updateScoreDisplay(); showTemporaryMessage("OOPS!", "text-red-500");
+            setTimeout(() => { detonateRemaining(lives <= 0); }, THEMES[currentThemeId].missDuration);
         }
 
         function detonateRemaining(isLast) {
@@ -501,79 +471,105 @@
         function resume() { if (isGameOver || isTransitioningLevel) return; showTemporaryMessage("", ""); isGamePaused = false; gameLoop(); }
 
         async function endGame() {
-            isGameOver = true; isGamePaused = true;
-            triggerHaptic([200, 100, 200]);
+            isGameOver = true; isGamePaused = true; triggerHaptic([200, 100, 200]);
             if (animationFrameHandle) cancelAnimationFrame(animationFrameHandle);
-            await saveScoreIfWorldRecord(currentThemeId, score);
+            if (score > (worldRecords[currentThemeId] || 0)) showInitialsEntry();
+            else finishEndGame();
+        }
+
+        function showInitialsEntry() {
+            const overlay = document.getElementById('overlay');
+            const btns = document.getElementById('difficulty-buttons');
+            overlay.classList.remove('hidden');
+            btns.innerHTML = `<div class="flex flex-col items-center">
+                <p class="text-xl text-green-400 font-bold mb-4 uppercase">New Record!</p>
+                <input type="text" id="initials-field" maxlength="3" class="initials-input" placeholder="---" autofocus>
+                <button id="submit-initials" class="bg-red-600 text-white font-black py-4 px-12 rounded shadow-2xl uppercase">Register</button>
+            </div>`;
+            document.getElementById('status-message').innerHTML = `<p class="text-5xl font-black text-white italic mb-4">ENTER INITIALS</p>`;
+            document.getElementById('submit-initials').onclick = async (e) => {
+                e.stopPropagation(); const initials = (document.getElementById('initials-field').value || '???').toUpperCase().substring(0,3);
+                await saveWorldRecord(currentThemeId, score, level, initials); finishEndGame();
+            };
+        }
+
+        function finishEndGame() {
             document.getElementById('game-area').classList.remove('hide-pointer');
             document.getElementById('header-stats-play').classList.add('hidden');
             document.getElementById('header-stats-menu').classList.remove('hidden');
-            startHighscoreTicker();
-            showThemeSelection(true);
+            startHighscoreTicker(); showThemeSelection(true);
         }
 
         function createExplosion(centerX, centerY) {
-            const theme = THEMES[currentThemeId];
             const el = document.createElement('img');
-            el.src = theme.graphics.EXPLOSION + "?t=" + Date.now();
+            el.src = THEMES[currentThemeId].graphics.EXPLOSION + "?t=" + Date.now();
             el.className = 'explosion-img pixel-art';
-            el.style.width = `${theme.explosionDim.w}px`; el.style.height = `${theme.explosionDim.h}px`;
-            el.style.left = `${centerX - theme.explosionDim.w / 2}px`; el.style.top = `${centerY - theme.explosionDim.h / 2}px`;
-            document.getElementById('game-area').appendChild(el);
-            setTimeout(() => el.remove(), theme.missDuration);
+            el.style.width = `${THEMES[currentThemeId].explosionDim.w}px`; el.style.height = `${THEMES[currentThemeId].explosionDim.h}px`;
+            el.style.left = `${centerX - THEMES[currentThemeId].explosionDim.w / 2}px`; el.style.top = `${centerY - THEMES[currentThemeId].explosionDim.h / 2}px`;
+            document.getElementById('game-area').appendChild(el); setTimeout(() => el.remove(), THEMES[currentThemeId].missDuration);
         }
 
         function createSplash(centerX, hitboxTopY) {
-            const theme = THEMES[currentThemeId];
             const el = document.createElement('img');
-            el.src = theme.graphics.SPLASH + "?t=" + Date.now();
+            el.src = THEMES[currentThemeId].graphics.SPLASH + "?t=" + Date.now();
             el.className = 'splash-img pixel-art';
-            el.style.width = `${theme.splashDim.w}px`; el.style.height = `${theme.splashDim.h}px`;
-            el.style.left = `${centerX - theme.splashDim.w / 2}px`; el.style.top = `${hitboxTopY - theme.splashDim.h}px`;
-            document.getElementById('game-area').appendChild(el);
-            setTimeout(() => el.remove(), theme.catchDuration);
+            el.style.width = `${THEMES[currentThemeId].splashDim.w}px`; el.style.height = `${THEMES[currentThemeId].splashDim.h}px`;
+            el.style.left = `${centerX - THEMES[currentThemeId].splashDim.w / 2}px`; el.style.top = `${hitboxTopY - THEMES[currentThemeId].splashDim.h}px`;
+            document.getElementById('game-area').appendChild(el); setTimeout(() => el.remove(), THEMES[currentThemeId].catchDuration);
         }
 
         function updateScoreDisplay() {
             const scoreStr = score.toString().padStart(6, '0');
             document.getElementById('score-display').textContent = scoreStr;
+            const hiLabel = document.getElementById('hi-label');
+            const hiInitialsEl = document.getElementById('hi-initials');
             const hiDisplay = document.getElementById('highscore-display');
-            const modeRecord = worldRecords[currentThemeId] || 0;
-            if (!isGameOver && score > modeRecord) {
-                hiDisplay.textContent = scoreStr;
-                hiDisplay.classList.add('text-red-500'); hiDisplay.classList.remove('text-yellow-400');
+            const hiMeta = document.getElementById('hi-meta-row');
+            const record = worldRecords[currentThemeId] || 0;
+            
+            if (!isGameOver) {
+                hiLabel.textContent = "World Best"; hiMeta.classList.add('hidden');
+                if (score > record) {
+                    hiInitialsEl.textContent = "YOU"; hiDisplay.textContent = scoreStr;
+                    hiInitialsEl.className = hiDisplay.className = "text-red-500 font-black text-sm tracking-tight leading-none";
+                } else {
+                    hiInitialsEl.textContent = worldInitials[currentThemeId] || '---'; hiDisplay.textContent = record.toString().padStart(6, '0');
+                    hiInitialsEl.className = "text-gray-400 font-bold text-[10px] tracking-tighter mr-1";
+                    hiDisplay.className = "text-yellow-400 font-bold text-sm tracking-tight leading-none";
+                }
             } else {
-                hiDisplay.textContent = globalHighscore.toString().padStart(6, '0');
-                hiDisplay.classList.add('text-yellow-400'); hiDisplay.classList.remove('text-red-500');
+                hiLabel.textContent = "Catch King"; hiMeta.classList.remove('hidden');
+                const bestId = Object.keys(worldRecords).reduce((a, b) => worldRecords[a] > worldRecords[b] ? a : b, 'classic');
+                hiInitialsEl.textContent = worldInitials[bestId] || '---';
+                hiDisplay.textContent = (worldRecords[bestId] || 0).toString().padStart(6, '0');
+                hiInitialsEl.className = "text-gray-400 font-bold text-[10px] tracking-tighter mr-1";
+                hiDisplay.className = "text-yellow-400 font-bold text-base tracking-tight leading-none text-shadow-glow";
+                document.getElementById('hi-theme-name').textContent = THEMES[bestId].title;
+                document.getElementById('hi-level-name').textContent = `L${worldLevels[bestId] || 1}`;
             }
-            document.getElementById('level-display').textContent = level;
-            document.getElementById('left-display').textContent = Math.max(0, totalCatchesNeeded - levelCatches);
-            const theme = THEMES[currentThemeId];
+            document.getElementById('level-display').textContent = `S${level.toString().padStart(2, '0')}`;
+            document.getElementById('lives-count').textContent = `×${lives}`;
             const stack = document.getElementById('buckets-stack');
+            const theme = THEMES[currentThemeId];
             if (theme.isStacked) {
                 const h = lives * (theme.bucketDim.h + theme.bucketDim.gap);
                 stack.style.height = `${h}px`; stack.style.top = `${GAME_AREA_HEIGHT - h}px`;
                 bucketElements.forEach((el, idx) => el.style.display = idx < lives ? 'block' : 'none');
             } else {
                 stack.style.height = `${theme.bucketDim.h}px`; stack.style.top = `${GAME_AREA_HEIGHT - theme.bucketDim.h}px`;
-                const img = document.getElementById('single-catcher-img');
-                if (img) img.src = theme.graphics.BUCKET_LAYERS[lives];
+                const img = document.getElementById('single-catcher-img'); if (img) img.src = theme.graphics.BUCKET_LAYERS[lives];
             }
         }
 
         function showThemeSelection(isOver = false) {
             const overlay = document.getElementById('overlay');
-            const msg = document.getElementById('status-message');
-            const btns = document.getElementById('difficulty-buttons');
             overlay.classList.remove('hidden'); overlay.style.opacity = 1;
-            btns.innerHTML = '';
-            if (isOver) msg.innerHTML = `<p class="text-4xl font-extrabold text-red-500 mb-4 uppercase italic text-center">GAME OVER</p><p class="text-xl mb-2 text-gray-300 text-center">Score: ${score.toString().padStart(6, '0')}</p><p class="text-lg mb-8 text-gray-400 font-mono text-sm text-center">Level ${level}</p>`;
-            else msg.innerHTML = `<p class="text-5xl font-extrabold text-yellow-400 mb-4 uppercase tracking-tighter italic text-center">KABOOM!</p><p class="text-xl mb-8 text-gray-300 font-medium text-center">Select Version</p>`;
-            
+            const btns = document.getElementById('difficulty-buttons'); btns.innerHTML = '';
+            if (isOver) document.getElementById('status-message').innerHTML = `<p class="text-4xl font-extrabold text-red-500 mb-4 uppercase italic text-center">Game Over</p><p class="text-xl mb-2 text-gray-300 text-center">Score: ${score.toString().padStart(6, '0')}</p><p class="text-lg mb-8 text-gray-400 font-mono text-sm text-center">Stage ${level}</p>`;
+            else document.getElementById('status-message').innerHTML = `<p class="text-5xl font-black text-yellow-400 mb-4 uppercase tracking-tighter italic text-center">Kaboom!</p><p class="text-xl mb-8 text-gray-300 font-medium text-center">Select Version</p>`;
             Object.keys(THEMES).forEach(id => {
-                const b = document.createElement('button');
-                b.textContent = THEMES[id].title;
-                b.className = 'bg-indigo-600 text-white font-extrabold py-4 px-8 rounded-lg m-2 uppercase hover:scale-105 transition w-64 shadow-lg active:bg-indigo-800 pointer-events-auto';
+                const b = document.createElement('button'); b.textContent = THEMES[id].title;
+                b.className = 'bg-indigo-600 text-white font-extrabold py-4 px-8 rounded-lg m-2 uppercase hover:scale-105 active:bg-indigo-800 pointer-events-auto';
                 b.onclick = (e) => { e.stopPropagation(); triggerHaptic(10); showDifficultySelection(id); };
                 btns.appendChild(b);
             });
@@ -581,35 +577,32 @@
 
         function showDifficultySelection(themeId) {
             const btns = document.getElementById('difficulty-buttons');
-            const theme = THEMES[themeId];
-            document.getElementById('status-message').innerHTML = `<p class="text-3xl font-bold text-yellow-400 mb-2 uppercase italic text-center">${theme.title}</p><p class="text-gray-400 mb-8 max-w-xs mx-auto text-sm text-center">${theme.description}</p>`;
+            document.getElementById('status-message').innerHTML = `<p class="text-3xl font-bold text-yellow-400 mb-2 uppercase italic text-center">${THEMES[themeId].title}</p><p class="text-gray-400 mb-8 max-w-xs mx-auto text-sm text-center">${THEMES[themeId].description}</p>`;
             btns.innerHTML = '';
             ['EASY', 'MEDIUM', 'HARD'].forEach(l => {
-                const b = document.createElement('button');
-                b.textContent = l;
-                const colors = { EASY: 'bg-green-600 active:bg-green-800', MEDIUM: 'bg-yellow-600 active:bg-yellow-800', HARD: 'bg-red-600 active:bg-red-800' };
-                b.className = `${colors[l]} text-white font-extrabold py-3 px-8 rounded-full m-2 uppercase hover:scale-105 transition shadow-md w-32 pointer-events-auto`;
+                const b = document.createElement('button'); b.textContent = l;
+                const colors = { EASY: 'bg-green-600', MEDIUM: 'bg-yellow-600', HARD: 'bg-red-600' };
+                b.className = `${colors[l]} text-white font-extrabold py-3 px-8 rounded-full m-2 uppercase hover:scale-105 active:opacity-80 pointer-events-auto w-32`;
                 b.onclick = (e) => { e.stopPropagation(); triggerHaptic(20); startGame(themeId, l); };
                 btns.appendChild(b);
             });
-            const back = document.createElement('button');
-            back.textContent = 'Back'; back.className = 'bg-gray-700 text-white font-bold py-2 px-4 rounded-full mt-8 block mx-auto text-xs opacity-50 hover:opacity-100 transition pointer-events-auto';
+            const back = document.createElement('button'); back.textContent = 'Back';
+            back.className = 'bg-gray-700 text-white font-bold py-2 px-4 rounded-full mt-8 block mx-auto text-xs pointer-events-auto';
             back.onclick = (e) => { e.stopPropagation(); triggerHaptic(5); showThemeSelection(); };
             btns.appendChild(back);
         }
 
         function handleInteraction(e) {
-            if (isGameOver) return;
+            if (isGameOver && !document.getElementById('initials-field')) return;
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const rect = document.getElementById('game-area').getBoundingClientRect();
-            const hitbox = getCurrentHitbox();
-            const imageLeft = (clientX - rect.left) - (hitbox.xOffset + hitbox.catchW / 2);
-            bucketX = Math.max(0 - hitbox.xOffset, Math.min(imageLeft, GAME_AREA_WIDTH - (hitbox.xOffset + hitbox.catchW)));
+            const imageLeft = (clientX - rect.left) - (getCurrentHitbox().xOffset + getCurrentHitbox().catchW / 2);
+            bucketX = Math.max(0 - getCurrentHitbox().xOffset, Math.min(imageLeft, GAME_AREA_WIDTH - (getCurrentHitbox().xOffset + getCurrentHitbox().catchW)));
             document.getElementById('buckets-stack').style.left = `${bucketX}px`;
             if (e.type === 'touchstart' || e.type === 'mousedown') {
                 const now = Date.now();
-                if (isGamePaused) { if (!isTransitioningLevel && document.getElementById('temp-message').textContent !== "OOPS!") resume(); } 
-                else { if (now - lastTapTime < 300) togglePauseGesture(); }
+                if (isGamePaused && !isGameOver && !document.getElementById('initials-field')) resume();
+                else if (now - lastTapTime < 300) togglePauseGesture();
                 lastTapTime = now;
             }
         }
@@ -622,18 +615,13 @@
         }
 
         function showTemporaryMessage(text, color) {
-            const el = document.getElementById('temp-message');
-            el.textContent = text;
+            const el = document.getElementById('temp-message'); el.textContent = text;
             if (text === "") { el.style.opacity = 0; return; }
             el.className = `absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-4xl font-black p-3 rounded-lg z-20 transition-opacity duration-300 ${color} shadow-2xl text-center uppercase italic`;
-            el.style.opacity = 1;
-            if (text === "OOPS!" || text === "GO!" || text === "LEVEL COMPLETE!" || text.startsWith("LEVEL ")) setTimeout(() => el.style.opacity = 0, 1500);
+            el.style.opacity = 1; if (text === "OOPS!" || text === "GO!" || text === "LEVEL COMPLETE!" || text.startsWith("LEVEL ")) setTimeout(() => el.style.opacity = 0, 1500);
         }
 
-        window.onload = () => {
-            initFirebase();
-            showThemeSelection();
-            startHighscoreTicker();
+        window.onload = () => { initFirebase(); showThemeSelection(); startHighscoreTicker();
             const area = document.getElementById('game-area');
             area.addEventListener('mousemove', handleInteraction);
             area.addEventListener('mousedown', handleInteraction);
@@ -645,32 +633,44 @@
 <body class="flex flex-col items-center justify-start min-h-screen p-2 pt-4">
     <div id="preload-cache"></div>
     <div id="game-container" class="w-full flex flex-col items-center">
-        <div class="w-full max-w-[400px] bg-gray-900 px-4 py-2 rounded-t-lg shadow-2xl flex justify-between items-center border-t-2 border-x-2 border-yellow-500 font-mono">
-            <div class="flex items-baseline gap-1.5 min-w-[70px]">
-                <span class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">HI</span>
-                <span id="highscore-display" class="text-yellow-400 font-bold text-sm tracking-tight leading-none">000000</span>
+        <!-- ARCADE HUD -->
+        <div class="w-full max-w-[400px] bg-gradient-to-b from-gray-800 to-black rounded-t-lg shadow-2xl border-b-4 border-yellow-500 font-mono overflow-hidden">
+            <div class="flex justify-between px-4 pt-1">
+                <span id="hi-label" class="text-[8px] text-gray-500 font-bold uppercase tracking-widest">Catch King</span>
+                <span id="center-label" class="text-[8px] text-gray-500 font-bold uppercase tracking-widest">Stage</span>
+                <span class="text-[8px] text-gray-500 font-bold uppercase tracking-widest">1UP Score</span>
             </div>
-            <div id="center-header-area" class="flex-1 flex justify-center items-center px-2">
-                <div id="header-stats-play" class="hidden flex items-center gap-3">
-                    <div class="flex items-baseline gap-1">
-                        <span class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter leading-none">LVL</span>
-                        <span id="level-display" class="text-white font-bold text-sm leading-none">1</span>
+            <div class="flex justify-between items-center px-4 pb-2">
+                <div id="hi-score-container" class="flex flex-col min-w-[120px]">
+                    <div class="flex items-baseline">
+                        <span id="hi-initials" class="text-gray-400 font-bold text-[10px] tracking-tighter mr-1">---</span>
+                        <span id="highscore-display" class="text-yellow-400 font-bold text-base tracking-tight leading-none">000000</span>
                     </div>
-                    <div class="bg-gray-800 px-2 py-0.5 rounded text-[10px] font-bold text-yellow-400 border border-gray-700 leading-none">
-                        <span id="left-display">15</span> LEFT
+                    <div id="hi-meta-row" class="text-[7px] text-gray-500 leading-none mt-0.5 uppercase flex gap-1">
+                        <span id="hi-theme-name">Classic</span> • <span id="hi-level-name">L1</span>
                     </div>
                 </div>
-                <div id="header-stats-menu" class="ticker-container w-full">
-                    <div id="ticker-inner" class="ticker-item">
-                        <span id="ticker-theme-name" class="text-[9px] text-gray-500 font-bold uppercase tracking-widest leading-none mb-1 text-center">Classic WORLD BEST</span>
-                        <span id="ticker-theme-score" class="text-white font-bold text-xs leading-none text-center">000000</span>
+                <div id="center-header-area" class="flex-1 flex justify-center items-center px-2">
+                    <div id="header-stats-play" class="hidden flex items-center gap-4">
+                        <span id="level-display" class="text-white font-black text-base leading-none">S01</span>
+                        <div class="flex items-center bg-gray-900 border border-gray-700 px-2 py-0.5 rounded shadow-inner">
+                            <img id="life-icon" src="" class="w-4 h-3 object-contain mr-1 pixel-art" alt="Life">
+                            <span id="lives-count" class="text-yellow-400 font-bold text-xs leading-none">×3</span>
+                        </div>
+                    </div>
+                    <div id="header-stats-menu" class="ticker-container w-full">
+                        <div id="ticker-inner" class="ticker-item">
+                            <span id="ticker-theme-name" class="text-[7px] text-gray-500 font-bold uppercase tracking-tighter leading-none mb-1 text-center">---</span>
+                            <span id="ticker-theme-score" class="text-white font-bold text-[11px] leading-none text-center">--- - 000000 L1</span>
+                        </div>
                     </div>
                 </div>
+                <div id="score-display" class="text-green-400 font-black text-xl tracking-widest min-w-[100px] text-right leading-none">000000</div>
             </div>
-            <div id="score-display" class="text-green-400 font-black text-xl tracking-widest min-w-[90px] text-right leading-none">000000</div>
         </div>
-        <div id="game-area" class="w-full h-[600px] max-w-[400px] rounded-b-lg relative shadow-2xl overflow-hidden border-b-2 border-x-2 border-gray-800">
-            <img id="mad-bomber-img" class="mad-bomber-img" style="display: none;" alt="Bomber">
+
+        <div id="game-area" class="w-full h-[600px] max-w-[400px] rounded-b-lg relative shadow-2xl overflow-hidden border-x-2 border-b-2 border-gray-800">
+            <div id="mad-bomber-img" class="mad-bomber-img" style="display: none;"></div>
             <div id="buckets-stack" class="bucket-stack"></div>
             <div id="temp-message" class="transition-opacity duration-300 opacity-0 pointer-events-none text-center"></div>
             <div id="overlay" class="game-status-overlay">
@@ -687,5 +687,3 @@
     </div>
 </body>
 </html>
-
-
