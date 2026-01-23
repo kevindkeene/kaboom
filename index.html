@@ -70,7 +70,6 @@
             transition: opacity 0.3s;
         }
 
-        /* Record Pulse & Glow Animation */
         @keyframes recordPulse {
             0% { transform: scale(1); text-shadow: 0 0 0px gold; }
             30% { transform: scale(1.15); text-shadow: 0 0 15px gold, 0 0 5px gold; }
@@ -140,6 +139,7 @@
             'classic': {
                 title: 'Classic',
                 id: 'classic',
+                isStacked: true,
                 bomberDim: { w: 21, h: 50 }, 
                 bombDim: { w: 15, h: 28 },
                 bucketDim: { w: 50, h: 20, gap: 2 },
@@ -165,6 +165,7 @@
             'alien-drop': {
                 title: 'Alien Drop',
                 id: 'alien-drop',
+                isStacked: false,
                 bomberDim: { w: 50, h: 50 }, 
                 bombDim: { w: 32, h: 26 }, 
                 bucketDim: { w: 220, h: 80, gap: 0 }, 
@@ -206,8 +207,7 @@
         let speedMultiplier = 1, madBomberSpeed = 1.5;
         let levelCatches = 0, totalCatchesNeeded = 15, bombsDroppedInAttempt = 0;
         let isTransitioningLevel = false;
-        let lastTapTime = 0; 
-        let madBomberTargetX = null;
+        let lastTapTime = 0, madBomberTargetX = null;
         let worldRecords = { 'classic': 0, 'alien-drop': 0 };
         let tickerIndex = 0, tickerInterval;
         let db, auth, userId, globalScoresRef, animationFrameHandle;
@@ -253,12 +253,13 @@
                     globalScoresRef = doc(db, 'artifacts', appId, 'public', 'data', 'globalScores', 'hallOfFame');
                     onSnapshot(globalScoresRef, (snap) => {
                         if (snap.exists()) {
-                            worldRecords = { ...worldRecords, ...snap.data() };
+                            const data = snap.data();
+                            worldRecords = { 'classic': data.classic || 0, 'alien-drop': data['alien-drop'] || 0 };
                             const numericScores = Object.values(worldRecords).filter(val => typeof val === 'number');
                             globalHighscore = numericScores.length > 0 ? Math.max(...numericScores) : 0;
                             updateScoreDisplay();
                         }
-                    });
+                    }, (err) => console.error("Firestore sync issue:", err));
                 }
             });
         }
@@ -269,7 +270,7 @@
                 const update = {}; update[themeId] = currentScore;
                 update[themeId + '_holder'] = userId;
                 try { await setDoc(globalScoresRef, update, { merge: true }); } 
-                catch (e) { console.error("Error saving global score:", e); }
+                catch (e) { console.error("Error saving record:", e); }
             }
         }
 
@@ -298,26 +299,36 @@
         }
 
         function startGame(themeId, diff) {
-            isGameOver = false; isGamePaused = false;
-            currentThemeId = themeId; currentDifficulty = diff;
-            const theme = THEMES[themeId];
-            const settings = theme.settings[diff];
-            if (tickerInterval) clearInterval(tickerInterval);
-            preloadThemeAssets(themeId);
-            if (animationFrameHandle) cancelAnimationFrame(animationFrameHandle);
-            score = 0; lives = INITIAL_BUCKET_COUNT; frame = 0; speedMultiplier = 1; level = 1;
-            levelCatches = 0; totalCatchesNeeded = 15; bombsDroppedInAttempt = 0; isTransitioningLevel = false;
-            madBomberX = GAME_AREA_WIDTH / 2; madBomberSpeed = settings.initialBomberSpeed;
-            madBomberTargetX = null;
-            bombs.forEach(b => b.element.remove()); bombs = [];
-            document.getElementById('overlay').classList.add('hidden');
-            document.getElementById('mad-bomber-img').style.display = 'block';
-            document.getElementById('game-area').classList.add('hide-pointer');
-            document.getElementById('header-stats-play').classList.remove('hidden');
-            document.getElementById('header-stats-menu').classList.add('hidden');
-            initGameElements();
-            updateScoreDisplay();
-            gameLoop();
+            try {
+                currentThemeId = themeId; currentDifficulty = diff;
+                const theme = THEMES[themeId];
+                const settings = theme.settings[diff];
+                
+                if (tickerInterval) clearInterval(tickerInterval);
+                preloadThemeAssets(themeId);
+                if (animationFrameHandle) cancelAnimationFrame(animationFrameHandle);
+                
+                score = 0; lives = INITIAL_BUCKET_COUNT; frame = 0; speedMultiplier = 1; level = 1;
+                levelCatches = 0; totalCatchesNeeded = 15; bombsDroppedInAttempt = 0; isTransitioningLevel = false;
+                madBomberX = GAME_AREA_WIDTH / 2; madBomberSpeed = settings.initialBomberSpeed;
+                madBomberTargetX = null;
+                bombs.forEach(b => { if(b.el) b.el.remove(); }); bombs = [];
+                
+                initGameElements();
+                updateScoreDisplay();
+                
+                document.getElementById('overlay').classList.add('hidden');
+                document.getElementById('mad-bomber-img').style.display = 'block';
+                document.getElementById('game-area').classList.add('hide-pointer');
+                document.getElementById('header-stats-play').classList.remove('hidden');
+                document.getElementById('header-stats-menu').classList.add('hidden');
+                
+                isGameOver = false; 
+                isGamePaused = false;
+                gameLoop();
+            } catch (err) {
+                console.error("Critical Start Error:", err);
+            }
         }
 
         function startNextLevel() {
@@ -338,6 +349,7 @@
             document.getElementById('game-area').style.backgroundImage = `url('${theme.graphics.BACKGROUND}')`;
             stack.innerHTML = ''; bucketElements = [];
             stack.style.width = `${theme.bucketDim.w}px`;
+            
             if (theme.isStacked) {
                 for (let i = 0; i < INITIAL_BUCKET_COUNT; i++) {
                     const b = document.createElement('img');
@@ -349,11 +361,18 @@
                 const b = document.createElement('img');
                 b.id = 'single-catcher-img'; b.className = 'bucket-img pixel-art';
                 b.style.width = `${theme.bucketDim.w}px`; b.style.height = `${theme.bucketDim.h}px`;
+                b.src = theme.graphics.BUCKET_LAYERS[lives]; // Set immediately
                 stack.appendChild(b); bucketElements.push(b);
             }
+            
+            // Forces bucket to be sized and placed immediately
+            const h = theme.isStacked ? lives * (theme.bucketDim.h + theme.bucketDim.gap) : theme.bucketDim.h;
+            stack.style.height = `${h}px`; stack.style.top = `${GAME_AREA_HEIGHT - h}px`;
+
             bomberEl.src = theme.graphics.BOMBER;
             bomberEl.className = 'mad-bomber-img pixel-art';
             bomberEl.style.width = `${theme.bomberDim.w}px`; bomberEl.style.height = `${theme.bomberDim.h}px`;
+            bomberEl.style.left = `${madBomberX}px`;
         }
 
         function gameLoop() {
@@ -409,6 +428,7 @@
             const hitbox = getCurrentHitbox();
             let catchTopY = theme.isStacked ? GAME_AREA_HEIGHT - (lives * (theme.bucketDim.h + theme.bucketDim.gap)) : GAME_AREA_HEIGHT - theme.bucketDim.h + hitbox.yOffset;
             for (let i = bombs.length - 1; i >= 0; i--) {
+                if (isGamePaused) break;
                 const b = bombs[i]; b.y += b.speed; b.el.style.top = `${b.y}px`;
                 if (b.y + theme.bombDim.h > GAME_AREA_HEIGHT) { handleMiss(i, b); } 
                 else if (lives > 0) {
@@ -416,7 +436,7 @@
                     if (b.y + theme.bombDim.h > catchTopY && b.y < catchTopY + hitbox.catchH && midX > bucketX + hitbox.xOffset && midX < bucketX + hitbox.xOffset + hitbox.catchW) { handleCatch(i, b, catchTopY); }
                 }
             }
-            if (!isGameOver && levelCatches >= totalCatchesNeeded && bombs.length === 0 && !isTransitioningLevel) {
+            if (!isGameOver && levelCatches >= totalCatchesNeeded && bombs.length === 0 && !isTransitioningLevel && !isGamePaused) {
                 isTransitioningLevel = true; isGamePaused = true;
                 showTemporaryMessage("LEVEL COMPLETE!", "text-green-400");
                 setTimeout(startNextLevel, 2000);
@@ -428,40 +448,38 @@
             const recordBeforeCatch = worldRecords[currentThemeId] || 0;
             score++;
             levelCatches++;
-            
             const left = totalCatchesNeeded - levelCatches;
             if (left <= 5 && left > 0) {
                 const el = document.createElement('div'); el.className = 'countdown-number font-mono';
                 el.textContent = left; document.getElementById('game-area').appendChild(el);
                 setTimeout(() => el.remove(), 400);
             }
-
-            // PULSE LOGIC: If we've broken the mode's record
             if (score > recordBeforeCatch) {
                 const hiEl = document.getElementById('highscore-display');
                 hiEl.classList.remove('pulse-active');
-                void hiEl.offsetWidth; // Force reflow
+                void hiEl.offsetWidth; 
                 hiEl.classList.add('pulse-active');
-                triggerHaptic(30); // Extra haptic feedback for record extension
+                triggerHaptic(30); 
             }
-
             updateScoreDisplay();
             triggerHaptic(20);
             createSplash(b.x + (theme.bombDim.w / 2), topY);
-            b.el.remove(); bombs.splice(idx, 1);
+            if (b.el) b.el.remove(); bombs.splice(idx, 1);
             if (score > 0 && score % 1000 === 0 && lives < INITIAL_BUCKET_COUNT) {
                 lives++; showTemporaryMessage("Extra Layer!", "text-green-400"); updateScoreDisplay();
             }
         }
 
         function handleMiss(idx, b) {
-            lives--; isGamePaused = true;
+            if (isGamePaused && !isGameOver && lives > 0) return;
+            isGamePaused = true;
+            lives--; 
             levelCatches = 0; bombsDroppedInAttempt = 0;
             triggerHaptic([100, 50, 150]);
             const theme = THEMES[currentThemeId];
             if (lives > 0) speedMultiplier = Math.max(1.0, speedMultiplier - 0.15);
             createExplosion(b.x + (theme.bombDim.w / 2), b.y + (theme.bombDim.h / 2));
-            b.el.remove(); bombs.splice(idx, 1);
+            if (b.el) b.el.remove(); bombs.splice(idx, 1);
             updateScoreDisplay();
             showTemporaryMessage("OOPS!", "text-red-500");
             setTimeout(() => { detonateRemaining(lives <= 0); }, theme.missDuration);
@@ -474,13 +492,13 @@
             toEx.forEach((b, i) => {
                 setTimeout(() => {
                     createExplosion(b.x + (THEMES[currentThemeId].bombDim.w / 2), b.y + (THEMES[currentThemeId].bombDim.h / 2));
-                    b.el.remove(); triggerHaptic(50);
+                    if (b.el) b.el.remove(); triggerHaptic(50);
                 }, (i * EXPLOSION_CHAIN_DELAY));
             });
             setTimeout(() => { if (isLast) endGame(); else resume(); }, (toEx.length * EXPLOSION_CHAIN_DELAY) + 500);
         }
 
-        function resume() { if (isTransitioningLevel) return; showTemporaryMessage("", ""); isGamePaused = false; gameLoop(); }
+        function resume() { if (isGameOver || isTransitioningLevel) return; showTemporaryMessage("", ""); isGamePaused = false; gameLoop(); }
 
         async function endGame() {
             isGameOver = true; isGamePaused = true;
@@ -519,23 +537,15 @@
         function updateScoreDisplay() {
             const scoreStr = score.toString().padStart(6, '0');
             document.getElementById('score-display').textContent = scoreStr;
-            
-            // DYNAMIC HI DISPLAY LOGIC
             const hiDisplay = document.getElementById('highscore-display');
             const modeRecord = worldRecords[currentThemeId] || 0;
-            
             if (!isGameOver && score > modeRecord) {
-                // RECORD BROKEN STATE
                 hiDisplay.textContent = scoreStr;
-                hiDisplay.classList.add('text-red-500');
-                hiDisplay.classList.remove('text-yellow-400');
+                hiDisplay.classList.add('text-red-500'); hiDisplay.classList.remove('text-yellow-400');
             } else {
-                // NORMAL STATE (Show global best)
                 hiDisplay.textContent = globalHighscore.toString().padStart(6, '0');
-                hiDisplay.classList.add('text-yellow-400');
-                hiDisplay.classList.remove('text-red-500');
+                hiDisplay.classList.add('text-yellow-400'); hiDisplay.classList.remove('text-red-500');
             }
-
             document.getElementById('level-display').textContent = level;
             document.getElementById('left-display').textContent = Math.max(0, totalCatchesNeeded - levelCatches);
             const theme = THEMES[currentThemeId];
@@ -598,13 +608,14 @@
             document.getElementById('buckets-stack').style.left = `${bucketX}px`;
             if (e.type === 'touchstart' || e.type === 'mousedown') {
                 const now = Date.now();
-                if (isGamePaused) { if (!isTransitioningLevel && document.getElementById('temp-message').textContent !== "OOPS!") togglePauseGesture(); } 
+                if (isGamePaused) { if (!isTransitioningLevel && document.getElementById('temp-message').textContent !== "OOPS!") resume(); } 
                 else { if (now - lastTapTime < 300) togglePauseGesture(); }
                 lastTapTime = now;
             }
         }
 
         function togglePauseGesture() {
+            if (isGameOver || isTransitioningLevel) return;
             isGamePaused = !isGamePaused; triggerHaptic(15);
             if (isGamePaused) showTemporaryMessage("PAUSED", "text-blue-400");
             else { showTemporaryMessage("GO!", "text-green-400"); gameLoop(); }
@@ -633,27 +644,22 @@
 </head>
 <body class="flex flex-col items-center justify-start min-h-screen p-2 pt-4">
     <div id="preload-cache"></div>
-
     <div id="game-container" class="w-full flex flex-col items-center">
-        <!-- HEADER -->
         <div class="w-full max-w-[400px] bg-gray-900 px-4 py-2 rounded-t-lg shadow-2xl flex justify-between items-center border-t-2 border-x-2 border-yellow-500 font-mono">
             <div class="flex items-baseline gap-1.5 min-w-[70px]">
                 <span class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">HI</span>
-                <!-- HI SCORE: Transitions to Red and pulses when record is broken -->
                 <span id="highscore-display" class="text-yellow-400 font-bold text-sm tracking-tight leading-none">000000</span>
             </div>
-            
             <div id="center-header-area" class="flex-1 flex justify-center items-center px-2">
                 <div id="header-stats-play" class="hidden flex items-center gap-3">
                     <div class="flex items-baseline gap-1">
-                        <span class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">LVL</span>
+                        <span class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter leading-none">LVL</span>
                         <span id="level-display" class="text-white font-bold text-sm leading-none">1</span>
                     </div>
                     <div class="bg-gray-800 px-2 py-0.5 rounded text-[10px] font-bold text-yellow-400 border border-gray-700 leading-none">
                         <span id="left-display">15</span> LEFT
                     </div>
                 </div>
-
                 <div id="header-stats-menu" class="ticker-container w-full">
                     <div id="ticker-inner" class="ticker-item">
                         <span id="ticker-theme-name" class="text-[9px] text-gray-500 font-bold uppercase tracking-widest leading-none mb-1 text-center">Classic WORLD BEST</span>
@@ -661,11 +667,8 @@
                     </div>
                 </div>
             </div>
-
             <div id="score-display" class="text-green-400 font-black text-xl tracking-widest min-w-[90px] text-right leading-none">000000</div>
         </div>
-
-        <!-- PLAY AREA -->
         <div id="game-area" class="w-full h-[600px] max-w-[400px] rounded-b-lg relative shadow-2xl overflow-hidden border-b-2 border-x-2 border-gray-800">
             <img id="mad-bomber-img" class="mad-bomber-img" style="display: none;" alt="Bomber">
             <div id="buckets-stack" class="bucket-stack"></div>
@@ -678,7 +681,6 @@
             </div>
         </div>
     </div>
-    
     <div class="mt-4 text-[9px] text-gray-700 font-mono flex flex-col gap-1 items-center uppercase tracking-widest text-center">
         <p>Double-Tap to Pause • Single Tap to Resume</p>
         <span>Player ID: <span id="user-id-display">Connecting...</span></span>
