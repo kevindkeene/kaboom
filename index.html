@@ -3,11 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kaboom! - Global Arcade</title>
+    <title>Catch-22 - Global Arcade</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800;900&display=swap');
+        /* Arcade Font Suite */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800;900&family=Black+Ops+One&family=Titan+One&family=Bungee&display=swap');
         
         body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f9fafb; margin: 0; overflow: hidden; }
         
@@ -79,7 +80,7 @@
             100% { transform: scale(1); text-shadow: 0 0 0px gold; }
         }
 
-        .pulse-active { animation: recordPulse 0.3s ease-out; }
+        .pulse-active { animation: recordPulse 0.3s ease-out; display: inline-block; }
 
         .countdown-number {
             position: absolute;
@@ -131,6 +132,11 @@
             margin-bottom: 20px;
         }
 
+        /* Typography Classes */
+        .font-short-fuse { font-family: 'Black Ops One', cursive; }
+        .font-bale-out { font-family: 'Titan One', cursive; }
+        .font-brand { font-family: 'Bungee', cursive; }
+
         #preload-cache {
             position: absolute;
             width: 0; height: 0;
@@ -152,7 +158,8 @@
         
         const THEMES = {
             'classic': {
-                title: 'Classic', id: 'classic', isStacked: true,
+                title: 'Short Fuse', id: 'classic', isStacked: true, fontClass: 'font-short-fuse',
+                description: 'DEFUSE THE BOMBS BEFORE THEY GO BOOM!',
                 bomberDim: { w: 21, h: 50 }, bombDim: { w: 15, h: 28 },
                 bucketDim: { w: 50, h: 20, gap: 2 }, splashDim: { w: 33, h: 46 },
                 explosionDim: { w: 80, h: 64 }, catchDuration: 780, missDuration: 1240,
@@ -173,7 +180,8 @@
                 }
             },
             'alien-drop': {
-                title: 'Alien Drop', id: 'alien-drop', isStacked: false,
+                title: 'Bale Out', id: 'alien-drop', isStacked: false, fontClass: 'font-bale-out',
+                description: 'CATCH FALLING COWS WITH YOUR TRACTOR BALE!',
                 bomberDim: { w: 50, h: 50 }, bombDim: { w: 32, h: 26 }, 
                 bucketDim: { w: 220, h: 80, gap: 0 }, splashDim: { w: 80, h: 80 },
                 explosionDim: { w: 80, h: 80 }, catchDuration: 900, missDuration: 1240,
@@ -228,7 +236,7 @@
         }
 
         async function initFirebase() {
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'kaboom-arcade';
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'catch-22-arcade';
             const firebaseConfigString = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
             if (!firebaseConfigString) return;
             const app = initializeApp(JSON.parse(firebaseConfigString));
@@ -275,7 +283,7 @@
                 if (tickerInner) {
                     tickerInner.style.transform = 'translateY(100%)';
                     setTimeout(() => {
-                        document.getElementById('ticker-theme-name').textContent = THEMES[id].title + " WORLD BEST";
+                        document.getElementById('ticker-theme-name').textContent = THEMES[id].title.toUpperCase() + " WORLD BEST";
                         document.getElementById('ticker-theme-score').textContent = `${worldInitials[id]} - ${(worldRecords[id]||0).toString().padStart(6,'0')} L${worldLevels[id]||1}`;
                         tickerInner.style.transition = 'none'; tickerInner.style.transform = 'translateY(-100%)';
                         tickerInner.offsetHeight; tickerInner.style.transition = 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)';
@@ -427,7 +435,7 @@
             const record = worldRecords[currentThemeId] || 0;
             score++; levelCatches++;
             if (totalCatchesNeeded - levelCatches <= 5 && totalCatchesNeeded - levelCatches > 0) {
-                const el = document.createElement('div'); el.className = 'countdown-number font-mono';
+                const el = document.createElement('div'); el.className = 'countdown-number font-brand';
                 el.textContent = totalCatchesNeeded - levelCatches; document.getElementById('game-area').appendChild(el);
                 setTimeout(() => el.remove(), 400);
             }
@@ -547,7 +555,7 @@
                 document.getElementById('hi-theme-name').textContent = THEMES[bestId].title;
                 document.getElementById('hi-level-name').textContent = `L${worldLevels[bestId] || 1}`;
             }
-            document.getElementById('level-display').textContent = `S${level.toString().padStart(2, '0')}`;
+            document.getElementById('level-display').textContent = `L${level.toString().padStart(2, '0')}`;
             document.getElementById('lives-count').textContent = `×${lives}`;
             const stack = document.getElementById('buckets-stack');
             const theme = THEMES[currentThemeId];
@@ -565,11 +573,13 @@
             const overlay = document.getElementById('overlay');
             overlay.classList.remove('hidden'); overlay.style.opacity = 1;
             const btns = document.getElementById('difficulty-buttons'); btns.innerHTML = '';
-            if (isOver) document.getElementById('status-message').innerHTML = `<p class="text-4xl font-extrabold text-red-500 mb-4 uppercase italic text-center">Game Over</p><p class="text-xl mb-2 text-gray-300 text-center">Score: ${score.toString().padStart(6, '0')}</p><p class="text-lg mb-8 text-gray-400 font-mono text-sm text-center">Stage ${level}</p>`;
-            else document.getElementById('status-message').innerHTML = `<p class="text-5xl font-black text-yellow-400 mb-4 uppercase tracking-tighter italic text-center">Kaboom!</p><p class="text-xl mb-8 text-gray-300 font-medium text-center">Select Version</p>`;
+            const status = document.getElementById('status-message');
+            if (isOver) status.innerHTML = `<p class="text-4xl font-extrabold text-red-500 mb-4 uppercase italic text-center">Game Over</p><p class="text-xl mb-2 text-gray-300 text-center">Score: ${score.toString().padStart(6, '0')}</p><p class="text-lg mb-8 text-gray-400 font-mono text-sm text-center">Level ${level}</p>`;
+            else status.innerHTML = `<p class="text-5xl font-black text-white mb-4 uppercase tracking-tighter italic text-center font-brand">CATCH-22</p><p class="text-xl mb-8 text-gray-300 font-medium text-center uppercase tracking-widest">Select Episode</p>`;
             Object.keys(THEMES).forEach(id => {
-                const b = document.createElement('button'); b.textContent = THEMES[id].title;
-                b.className = 'bg-indigo-600 text-white font-extrabold py-4 px-8 rounded-lg m-2 uppercase hover:scale-105 active:bg-indigo-800 pointer-events-auto';
+                const b = document.createElement('button');
+                b.className = `w-64 py-4 px-8 rounded-lg m-2 uppercase hover:scale-105 transition shadow-lg active:bg-indigo-800 pointer-events-auto bg-indigo-600 text-white font-extrabold ${THEMES[id].fontClass}`;
+                b.textContent = THEMES[id].title;
                 b.onclick = (e) => { e.stopPropagation(); triggerHaptic(10); showDifficultySelection(id); };
                 btns.appendChild(b);
             });
@@ -577,17 +587,18 @@
 
         function showDifficultySelection(themeId) {
             const btns = document.getElementById('difficulty-buttons');
-            document.getElementById('status-message').innerHTML = `<p class="text-3xl font-bold text-yellow-400 mb-2 uppercase italic text-center">${THEMES[themeId].title}</p><p class="text-gray-400 mb-8 max-w-xs mx-auto text-sm text-center">${THEMES[themeId].description}</p>`;
+            const theme = THEMES[themeId];
+            document.getElementById('status-message').innerHTML = `<p class="text-3xl font-bold text-yellow-400 mb-2 uppercase italic text-center ${theme.fontClass}">${theme.title}</p><p class="text-gray-400 mb-8 max-w-xs mx-auto text-sm text-center italic font-bold tracking-widest">${theme.description}</p>`;
             btns.innerHTML = '';
             ['EASY', 'MEDIUM', 'HARD'].forEach(l => {
                 const b = document.createElement('button'); b.textContent = l;
                 const colors = { EASY: 'bg-green-600', MEDIUM: 'bg-yellow-600', HARD: 'bg-red-600' };
-                b.className = `${colors[l]} text-white font-extrabold py-3 px-8 rounded-full m-2 uppercase hover:scale-105 active:opacity-80 pointer-events-auto w-32`;
+                b.className = `${colors[l]} text-white font-extrabold py-3 px-8 rounded-full m-2 uppercase hover:scale-105 active:opacity-80 pointer-events-auto w-32 shadow-md`;
                 b.onclick = (e) => { e.stopPropagation(); triggerHaptic(20); startGame(themeId, l); };
                 btns.appendChild(b);
             });
             const back = document.createElement('button'); back.textContent = 'Back';
-            back.className = 'bg-gray-700 text-white font-bold py-2 px-4 rounded-full mt-8 block mx-auto text-xs pointer-events-auto';
+            back.className = 'bg-gray-700 text-white font-bold py-2 px-4 rounded-full mt-8 block mx-auto text-[9px] pointer-events-auto uppercase tracking-widest';
             back.onclick = (e) => { e.stopPropagation(); triggerHaptic(5); showThemeSelection(); };
             btns.appendChild(back);
         }
@@ -637,26 +648,37 @@
         <div class="w-full max-w-[400px] bg-gradient-to-b from-gray-800 to-black rounded-t-lg shadow-2xl border-b-4 border-yellow-500 font-mono overflow-hidden">
             <div class="flex justify-between px-4 pt-1">
                 <span id="hi-label" class="text-[8px] text-gray-500 font-bold uppercase tracking-widest">Catch King</span>
-                <span id="center-label" class="text-[8px] text-gray-500 font-bold uppercase tracking-widest">Stage</span>
+                <span id="center-label" class="text-[8px] text-gray-500 font-bold uppercase tracking-widest">Level</span>
                 <span class="text-[8px] text-gray-500 font-bold uppercase tracking-widest">1UP Score</span>
             </div>
             <div class="flex justify-between items-center px-4 pb-2">
+                <!-- LEFT -->
                 <div id="hi-score-container" class="flex flex-col min-w-[120px]">
                     <div class="flex items-baseline">
                         <span id="hi-initials" class="text-gray-400 font-bold text-[10px] tracking-tighter mr-1">---</span>
                         <span id="highscore-display" class="text-yellow-400 font-bold text-base tracking-tight leading-none">000000</span>
                     </div>
-                    <div id="hi-meta-row" class="text-[7px] text-gray-500 leading-none mt-0.5 uppercase flex gap-1">
-                        <span id="hi-theme-name">Classic</span> • <span id="hi-level-name">L1</span>
+                    <div id="hi-meta-row" class="text-[7px] text-gray-500 leading-none mt-0.5 uppercase flex gap-1 font-bold tracking-tighter">
+                        <span id="hi-theme-name">---</span> • <span id="hi-level-name">L1</span>
                     </div>
                 </div>
+                <!-- CENTER -->
                 <div id="center-header-area" class="flex-1 flex justify-center items-center px-2">
-                    <div id="header-stats-play" class="hidden flex items-center gap-4">
-                        <span id="level-display" class="text-white font-black text-base leading-none">S01</span>
-                        <div class="flex items-center bg-gray-900 border border-gray-700 px-2 py-0.5 rounded shadow-inner">
-                            <img id="life-icon" src="" class="w-4 h-3 object-contain mr-1 pixel-art" alt="Life">
-                            <span id="lives-count" class="text-yellow-400 font-bold text-xs leading-none">×3</span>
+                    <div id="header-stats-play" class="hidden flex items-center h-8">
+                        <div class="border-l border-gray-700 h-6 mx-2"></div>
+                        <div class="flex flex-col items-center justify-center">
+                            <span class="text-[7px] text-gray-500 uppercase font-black leading-none mb-1">LVL</span>
+                            <span id="level-display" class="text-white font-black text-sm leading-none">L01</span>
                         </div>
+                        <div class="border-l border-gray-700 h-6 mx-2"></div>
+                        <div class="flex flex-col items-center justify-center">
+                            <span class="text-[7px] text-gray-500 uppercase font-black leading-none mb-1">Life</span>
+                            <div class="flex items-center">
+                                <img id="life-icon" src="" class="w-3 h-2 object-contain mr-1 pixel-art" alt="">
+                                <span id="lives-count" class="text-yellow-400 font-bold text-[10px] leading-none">×3</span>
+                            </div>
+                        </div>
+                        <div class="border-l border-gray-700 h-6 mx-2"></div>
                     </div>
                     <div id="header-stats-menu" class="ticker-container w-full">
                         <div id="ticker-inner" class="ticker-item">
@@ -665,19 +687,17 @@
                         </div>
                     </div>
                 </div>
+                <!-- RIGHT -->
                 <div id="score-display" class="text-green-400 font-black text-xl tracking-widest min-w-[100px] text-right leading-none">000000</div>
             </div>
         </div>
 
-        <div id="game-area" class="w-full h-[600px] max-w-[400px] rounded-b-lg relative shadow-2xl overflow-hidden border-x-2 border-b-2 border-gray-800">
+        <div id="game-area" class="w-full h-[600px] max-w-[400px] rounded-b-lg relative shadow-2xl border-x-2 border-b-2 border-gray-800">
             <div id="mad-bomber-img" class="mad-bomber-img" style="display: none;"></div>
             <div id="buckets-stack" class="bucket-stack"></div>
             <div id="temp-message" class="transition-opacity duration-300 opacity-0 pointer-events-none text-center"></div>
             <div id="overlay" class="game-status-overlay">
-                <div class="text-center p-6">
-                    <div id="status-message" class="mb-8"></div>
-                    <div id="difficulty-buttons" class="flex flex-wrap justify-center items-center"></div>
-                </div>
+                <div class="text-center p-6"><div id="status-message" class="mb-8 font-brand"></div><div id="difficulty-buttons" class="flex flex-wrap justify-center items-center"></div></div>
             </div>
         </div>
     </div>
@@ -687,3 +707,4 @@
     </div>
 </body>
 </html>
+
