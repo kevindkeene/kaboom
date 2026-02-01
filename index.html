@@ -24,6 +24,12 @@
             margin: auto;
             touch-action: none; 
             cursor: crosshair;
+            transition: filter 0.3s;
+        }
+
+        /* Slime Visual Penalty */
+        #game-area.gunked {
+            filter: sepia(1) saturate(3) hue-rotate(90deg);
         }
 
         #game-area.hide-pointer { cursor: none !important; }
@@ -55,7 +61,7 @@
 
         .bucket-img { object-fit: contain; width: 100%; height: 100%; }
 
-        .bomb-img { position: absolute; z-index: 50; transition: opacity 0.1s; }
+        .bomb-img { position: absolute; z-index: 50; }
         .splash-img { position: absolute; z-index: 250; pointer-events: none; }
         .explosion-img { position: absolute; z-index: 200; pointer-events: none; }
 
@@ -176,7 +182,6 @@
                     SPLASH: 'https://kevindkeene.github.io/kaboom/assets/splash264x368.gif',
                     BACKGROUND: 'https://kevindkeene.github.io/kaboom/assets/kaboom-background.gif'
                 },
-                // Hard mode is now the standard
                 settings: { baseBombSpeed: 3.2, initialDropInterval: 70, initialBomberSpeed: 2.5, twitchChance: 0.03 }
             },
             'alien-drop': {
@@ -194,6 +199,7 @@
                 graphics: {
                     BOMBER: 'https://kevindkeene.github.io/kaboom/assets/ufo2-400x400.gif', 
                     BOMB: 'https://kevindkeene.github.io/kaboom/assets/cow3.gif', 
+                    SLIME: 'https://kevindkeene.github.io/kaboom/assets/slimeball.gif', // Correct Slime URL
                     BUCKET_LAYERS: [
                         'https://kevindkeene.github.io/kaboom/assets/tractor-0hay.gif',
                         'https://kevindkeene.github.io/kaboom/assets/tractor-1hay.gif',
@@ -204,7 +210,6 @@
                     SPLASH: 'https://kevindkeene.github.io/kaboom/assets/burst.gif',
                     BACKGROUND: 'https://kevindkeene.github.io/kaboom/assets/alien_background2.gif'
                 },
-                // Hard mode is now the standard
                 settings: { baseBombSpeed: 3.8, initialDropInterval: 60, initialBomberSpeed: 3.0, twitchChance: 0.04 }
             }
         };
@@ -213,14 +218,16 @@
         let isGameOver = true, isGamePaused = true, frame = 0;
         let bombs = [], bucketElements = [];
         let currentThemeId = 'classic';
-        let bucketX = 0, madBomberX = 0, madBomberDirection = 1;
-        let speedMultiplier = 1, madBomberSpeed = 1.5;
+        let bucketX = 0, madBomberX = 0, madBomberDirection = 1, madBomberSpeed = 1.5, speedMultiplier = 1;
         let levelCatches = 0, totalCatchesNeeded = 15, bombsDroppedInAttempt = 0;
-        let isTransitioningLevel = false;
-        let lastTapTime = 0, madBomberTargetX = null;
+        let isTransitioningLevel = false, lastTapTime = 0, madBomberTargetX = null;
         let worldRecords = { 'classic': 0, 'alien-drop': 0 };
         let worldInitials = { 'classic': '---', 'alien-drop': '---' };
         let worldLevels = { 'classic': 1, 'alien-drop': 1 }; 
+        
+        let isGunked = false; 
+        let gunkTimeout = null;
+
         let tickerIndex = 0, tickerInterval;
         let db, auth, userId, globalScoresRef, animationFrameHandle;
 
@@ -238,8 +245,7 @@
             if (!firebaseConfigString) return;
             const app = initializeApp(JSON.parse(firebaseConfigString));
             db = getFirestore(app); auth = getAuth(app);
-            const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-            try { if (token) await signInWithCustomToken(auth, token); else await signInAnonymously(auth); } catch (e) {}
+            try { await signInAnonymously(auth); } catch (e) {}
             onAuthStateChanged(auth, (u) => {
                 if (u) {
                     userId = u.uid; document.getElementById('user-id-display').textContent = userId;
@@ -302,6 +308,9 @@
             madBomberTargetX = null;
             bombs.forEach(b => { if(b.el) b.el.remove(); }); bombs = [];
             
+            isGunked = false; document.getElementById('game-area').classList.remove('gunked');
+            if(gunkTimeout) clearTimeout(gunkTimeout);
+
             initGameElements();
             updateScoreDisplay();
             
@@ -315,13 +324,6 @@
             gameLoop();
         }
 
-        function startNextLevel() {
-            level++; isTransitioningLevel = false; levelCatches = 0; bombsDroppedInAttempt = 0;
-            totalCatchesNeeded = 15 + (level * 5); speedMultiplier += 0.15;
-            showTemporaryMessage(`LEVEL ${level}`, "text-yellow-400");
-            updateScoreDisplay(); isGamePaused = false; gameLoop(); triggerHaptic([100, 50, 100]);
-        }
-
         function initGameElements() {
             const theme = THEMES[currentThemeId];
             const stack = document.getElementById('buckets-stack');
@@ -329,7 +331,6 @@
             document.getElementById('game-area').style.backgroundImage = `url('${theme.graphics.BACKGROUND}')`;
             stack.innerHTML = ''; bucketElements = [];
             stack.style.width = `${theme.bucketDim.w}px`;
-            
             if (theme.isStacked) {
                 for (let i = 0; i < lives; i++) {
                     const b = document.createElement('img');
@@ -344,11 +345,9 @@
             }
             const h = theme.isStacked ? lives * (theme.bucketDim.h + theme.bucketDim.gap) : theme.bucketDim.h;
             stack.style.height = `${h}px`; stack.style.top = `${GAME_AREA_HEIGHT - h}px`;
-
             bomberEl.innerHTML = `<img src="${theme.graphics.BOMBER}" class="pixel-art w-full h-full" onerror="this.style.display='none'; this.parentNode.innerHTML='<span class=\'text-4xl\'>${theme.emoji.bomber}</span>'">`;
             bomberEl.style.width = `${theme.bomberDim.w}px`; bomberEl.style.height = `${theme.bomberDim.h}px`;
             bomberEl.style.left = `${madBomberX}px`;
-            
             document.getElementById('life-icon').src = theme.isStacked ? theme.graphics.BUCKET : theme.graphics.BUCKET_LAYERS[1];
         }
 
@@ -362,10 +361,10 @@
             const theme = THEMES[currentThemeId];
             const base = madBomberSpeed * speedMultiplier;
             if (madBomberTargetX !== null) {
-                const zipSpeed = base * 4;
+                const zSpeed = base * 4;
                 const dist = madBomberTargetX - madBomberX;
-                if (Math.abs(dist) < zipSpeed) { madBomberX = madBomberTargetX; madBomberTargetX = null; } 
-                else { madBomberX += Math.sign(dist) * zipSpeed; }
+                if (Math.abs(dist) < zSpeed) { madBomberX = madBomberTargetX; madBomberTargetX = null; } 
+                else { madBomberX += Math.sign(dist) * zSpeed; }
             } else {
                 if (Math.random() < (theme.settings.twitchChance + (level * 0.005))) madBomberDirection *= -1;
                 madBomberX += madBomberDirection * base;
@@ -374,27 +373,29 @@
             }
             document.getElementById('mad-bomber-img').style.left = `${madBomberX}px`;
             if (bombsDroppedInAttempt < totalCatchesNeeded) {
-                const dropInt = Math.max(8, theme.settings.initialDropInterval - (level * 5) - Math.floor(score / 15));
-                if (frame % Math.floor(dropInt) === 0) {
-                    createBomb(madBomberX + (theme.bomberDim.w/2) - (theme.bombDim.w/2), theme.bomberDim.h);
-                    bombsDroppedInAttempt++;
-                    const minJump = GAME_AREA_WIDTH * 0.4;
-                    let newX = Math.random() * (GAME_AREA_WIDTH - theme.bomberDim.w);
-                    let att = 0; while (Math.abs(newX - madBomberX) < minJump && att < 10) { newX = Math.random() * (GAME_AREA_WIDTH - theme.bomberDim.w); att++; }
-                    madBomberTargetX = newX;
+                const dInt = Math.max(8, theme.settings.initialDropInterval - (level * 5) - Math.floor(score / 15));
+                if (frame % Math.floor(dInt) === 0) {
+                    const type = (currentThemeId === 'alien-drop' && Math.random() < 0.15) ? 'slime' : 'good';
+                    createBomb(madBomberX + (theme.bomberDim.w/2) - (theme.bombDim.w/2), theme.bomberDim.h, type);
+                    if (type === 'good') bombsDroppedInAttempt++;
+                    const minJ = GAME_AREA_WIDTH * 0.4;
+                    let nX = Math.random() * (GAME_AREA_WIDTH - theme.bomberDim.w);
+                    let att = 0; while (Math.abs(nX - madBomberX) < minJ && att < 10) { nX = Math.random() * (GAME_AREA_WIDTH - theme.bomberDim.w); att++; }
+                    madBomberTargetX = nX;
                 }
             }
         }
 
-        function createBomb(x, y) {
+        function createBomb(x, y, type = 'good') {
             const theme = THEMES[currentThemeId];
             const el = document.createElement('div');
             el.className = 'bomb-img pixel-art absolute flex items-center justify-center';
             el.style.width = `${theme.bombDim.w}px`; el.style.height = `${theme.bombDim.h}px`;
             el.style.left = `${x}px`; el.style.top = `${y}px`;
-            el.innerHTML = `<img src="${theme.graphics.BOMB}" class="w-full h-full" onerror="this.style.display='none'; this.parentNode.innerHTML='<span style=\'font-size:${theme.bombDim.h}px\'>${theme.emoji.bomb}</span>'">`;
+            const imgUrl = (type === 'slime') ? theme.graphics.SLIME : theme.graphics.BOMB;
+            el.innerHTML = `<img src="${imgUrl}" class="w-full h-full" onerror="this.style.display='none'; this.parentNode.innerHTML='<span style=\'font-size:${theme.bombDim.h}px\'>🤮</span>'">`;
             document.getElementById('game-area').appendChild(el);
-            bombs.push({ x, y, el, speed: (theme.settings.baseBombSpeed + (level * 0.1)) * speedMultiplier });
+            bombs.push({ x, y, el, type, speed: (theme.settings.baseBombSpeed + (level * 0.1)) * speedMultiplier });
         }
 
         function updateBombs() {
@@ -404,7 +405,10 @@
             for (let i = bombs.length - 1; i >= 0; i--) {
                 if (isGamePaused) break;
                 const b = bombs[i]; b.y += b.speed; b.el.style.top = `${b.y}px`;
-                if (b.y + theme.bombDim.h > GAME_AREA_HEIGHT) { handleMiss(i, b); } 
+                if (b.y + theme.bombDim.h > GAME_AREA_HEIGHT) { 
+                    if (b.type === 'good') handleMiss(i, b); 
+                    else { b.el.remove(); bombs.splice(i, 1); }
+                } 
                 else if (lives > 0) {
                     const midX = b.x + (theme.bombDim.w / 2);
                     if (b.y + theme.bombDim.h > catchTopY && b.y < catchTopY + hitbox.catchH && midX > bucketX + hitbox.xOffset && midX < bucketX + hitbox.xOffset + hitbox.catchW) { handleCatch(i, b, catchTopY); }
@@ -412,29 +416,53 @@
             }
             if (!isGameOver && levelCatches >= totalCatchesNeeded && bombs.length === 0 && !isTransitioningLevel && !isGamePaused) {
                 isTransitioningLevel = true; isGamePaused = true;
-                showTemporaryMessage("LEVEL COMPLETE!", "text-green-400"); setTimeout(startNextLevel, 2000);
+                showTemporaryMessage("LEVEL COMPLETE!", "text-green-400");
+                setTimeout(() => {
+                    level++; isTransitioningLevel = false; levelCatches = 0; bombsDroppedInAttempt = 0;
+                    totalCatchesNeeded = 15 + (level * 5); speedMultiplier += 0.15;
+                    updateScoreDisplay(); isGamePaused = false; gameLoop(); triggerHaptic([100, 50, 100]);
+                }, 2000);
             }
         }
 
         function handleCatch(idx, b, topY) {
-            const record = worldRecords[currentThemeId] || 0;
+            if (b.type === 'slime') {
+                applyGunkPenalty();
+                b.el.remove(); bombs.splice(idx, 1);
+                return;
+            }
+            const bObj = bombs[idx];
+            createSplash(bObj.x + (THEMES[currentThemeId].bombDim.w / 2), topY);
+            bObj.el.remove(); bombs.splice(idx, 1);
             score++; levelCatches++;
-            if (totalCatchesNeeded - levelCatches <= 5 && totalCatchesNeeded - levelCatches > 0) {
+            const left = totalCatchesNeeded - levelCatches;
+            if (left <= 5 && left > 0) {
                 const el = document.createElement('div'); el.className = 'countdown-number font-brand';
-                el.textContent = totalCatchesNeeded - levelCatches; document.getElementById('game-area').appendChild(el);
+                el.textContent = left; document.getElementById('game-area').appendChild(el);
                 setTimeout(() => el.remove(), 400);
             }
-            if (score > record) {
+            if (score > worldRecords[currentThemeId]) {
                 const hi = document.getElementById('hi-score-container');
                 if (hi) { hi.classList.remove('pulse-active'); void hi.offsetWidth; hi.classList.add('pulse-active'); }
                 triggerHaptic(30); 
             }
             updateScoreDisplay(); triggerHaptic(20);
-            createSplash(b.x + (THEMES[currentThemeId].bombDim.w / 2), topY);
-            if (b.el) b.el.remove(); bombs.splice(idx, 1);
             if (score > 0 && score % 1000 === 0 && lives < INITIAL_BUCKET_COUNT) {
                 lives++; showTemporaryMessage("Extra Life!", "text-green-400"); updateScoreDisplay();
             }
+        }
+
+        function applyGunkPenalty() {
+            if (isGunked) clearTimeout(gunkTimeout);
+            isGunked = true;
+            document.getElementById('game-area').classList.add('gunked');
+            showTemporaryMessage("GUNKED!", "text-green-500");
+            triggerHaptic([200, 100, 200]);
+            gunkTimeout = setTimeout(() => {
+                isGunked = false;
+                document.getElementById('game-area').classList.remove('gunked');
+                showTemporaryMessage("CLEANED!", "text-blue-400");
+            }, 4000);
         }
 
         function handleMiss(idx, b) {
@@ -477,7 +505,7 @@
             btns.innerHTML = `<div class="flex flex-col items-center">
                 <p class="text-xl text-green-400 font-bold mb-4 uppercase">New Record!</p>
                 <input type="text" id="initials-field" maxlength="3" class="initials-input" placeholder="---" autofocus>
-                <button id="submit-initials" class="bg-red-600 text-white font-black py-4 px-12 rounded shadow-2xl uppercase font-brand">Register</button>
+                <button id="submit-initials" class="bg-red-600 text-white font-black py-4 px-16 rounded shadow-2xl uppercase font-brand">Register</button>
             </div>`;
             document.getElementById('status-message').innerHTML = `<p class="text-5xl font-black text-white italic mb-4">ENTER INITIALS</p>`;
             document.getElementById('submit-initials').onclick = async (e) => {
@@ -493,22 +521,20 @@
             startHighscoreTicker(); showThemeSelection(true);
         }
 
-        function createExplosion(centerX, centerY) {
-            const el = document.createElement('img');
-            el.src = THEMES[currentThemeId].graphics.EXPLOSION + "?t=" + Date.now();
-            el.className = 'explosion-img pixel-art';
-            el.style.width = `${THEMES[currentThemeId].explosionDim.w}px`; el.style.height = `${THEMES[currentThemeId].explosionDim.h}px`;
-            el.style.left = `${centerX - THEMES[currentThemeId].explosionDim.w / 2}px`; el.style.top = `${centerY - THEMES[currentThemeId].explosionDim.h / 2}px`;
-            document.getElementById('game-area').appendChild(el); setTimeout(() => el.remove(), THEMES[currentThemeId].missDuration);
+        function createSplash(centerX, hitboxTopY) {
+            const el = document.createElement('img'); el.src = THEMES[currentThemeId].graphics.SPLASH + "?t=" + Date.now();
+            el.className = 'splash-img pixel-art'; el.style.width = THEMES[currentThemeId].splashDim.w + 'px';
+            el.style.left = (centerX - THEMES[currentThemeId].splashDim.w / 2) + 'px';
+            el.style.top = (hitboxTopY - THEMES[currentThemeId].splashDim.h) + 'px';
+            document.getElementById('game-area').appendChild(el); setTimeout(() => el.remove(), THEMES[currentThemeId].catchDuration);
         }
 
-        function createSplash(centerX, hitboxTopY) {
-            const el = document.createElement('img');
-            el.src = THEMES[currentThemeId].graphics.SPLASH + "?t=" + Date.now();
-            el.className = 'splash-img pixel-art';
-            el.style.width = `${THEMES[currentThemeId].splashDim.w}px`; el.style.height = `${THEMES[currentThemeId].splashDim.h}px`;
-            el.style.left = `${centerX - THEMES[currentThemeId].splashDim.w / 2}px`; el.style.top = `${hitboxTopY - THEMES[currentThemeId].splashDim.h}px`;
-            document.getElementById('game-area').appendChild(el); setTimeout(() => el.remove(), THEMES[currentThemeId].catchDuration);
+        function createExplosion(centerX, centerY) {
+            const el = document.createElement('img'); el.src = THEMES[currentThemeId].graphics.EXPLOSION + "?t=" + Date.now();
+            el.className = 'explosion-img pixel-art'; el.style.width = THEMES[currentThemeId].explosionDim.w + 'px';
+            el.style.left = (centerX - THEMES[currentThemeId].explosionDim.w / 2) + 'px';
+            el.style.top = (centerY - THEMES[currentThemeId].explosionDim.h / 2) + 'px';
+            document.getElementById('game-area').appendChild(el); setTimeout(() => el.remove(), THEMES[currentThemeId].missDuration);
         }
 
         function updateScoreDisplay() {
@@ -517,11 +543,9 @@
             const hiLabel = document.getElementById('hi-label');
             const hiInitialsEl = document.getElementById('hi-initials');
             const hiDisplay = document.getElementById('highscore-display');
-            const hiMeta = document.getElementById('hi-meta-row');
-            const record = worldRecords[currentThemeId] || 0;
-            
             if (!isGameOver) {
-                hiLabel.textContent = "World Best"; hiMeta.classList.add('hidden');
+                hiLabel.textContent = "World Best";
+                const record = worldRecords[currentThemeId] || 0;
                 if (score > record) {
                     hiInitialsEl.textContent = "YOU"; hiDisplay.textContent = scoreStr;
                     hiInitialsEl.className = hiDisplay.className = "text-red-500 font-black text-sm tracking-tight leading-none";
@@ -531,13 +555,13 @@
                     hiDisplay.className = "text-yellow-400 font-bold text-sm tracking-tight leading-none";
                 }
             } else {
-                hiLabel.textContent = "Catch King"; hiMeta.classList.remove('hidden');
+                hiLabel.textContent = "Catch King";
                 const bestId = Object.keys(worldRecords).reduce((a, b) => worldRecords[a] > worldRecords[b] ? a : b, 'classic');
                 hiInitialsEl.textContent = worldInitials[bestId] || '---';
                 hiDisplay.textContent = (worldRecords[bestId] || 0).toString().padStart(6, '0');
                 hiInitialsEl.className = "text-gray-400 font-bold text-[10px] tracking-tighter mr-1";
-                hiDisplay.className = "text-yellow-400 font-bold text-base tracking-tight leading-none text-shadow-glow";
-                document.getElementById('hi-theme-name').textContent = THEMES[bestId].title;
+                hiDisplay.className = "text-yellow-400 font-bold text-base tracking-tight leading-none";
+                document.getElementById('hi-theme-name').textContent = THEMES[bestId] ? THEMES[bestId].title : '---';
                 document.getElementById('hi-level-name').textContent = `L${worldLevels[bestId] || 1}`;
             }
             document.getElementById('level-display').textContent = `L${level.toString().padStart(2, '0')}`;
@@ -556,48 +580,20 @@
             }
         }
 
-        function showThemeSelection(isOver = false) {
-            const overlay = document.getElementById('overlay');
-            overlay.classList.remove('hidden'); overlay.style.opacity = 1;
-            const btns = document.getElementById('difficulty-buttons'); btns.innerHTML = '';
-            const status = document.getElementById('status-message');
-            if (isOver) status.innerHTML = `<p class="text-4xl font-extrabold text-red-500 mb-4 uppercase italic text-center">Game Over</p><p class="text-xl mb-2 text-gray-300 text-center">Score: ${score.toString().padStart(6, '0')}</p><p class="text-lg mb-8 text-gray-400 font-mono text-sm text-center">Level ${level}</p>`;
-            else status.innerHTML = `<p class="text-5xl font-black text-white mb-4 uppercase tracking-tighter italic text-center font-brand">CATCH-22</p><p class="text-xl mb-8 text-gray-300 font-medium text-center uppercase tracking-widest">Select Episode</p>`;
-            Object.keys(THEMES).forEach(id => {
-                const b = document.createElement('button');
-                b.className = `w-64 py-4 px-8 rounded-lg m-2 uppercase hover:scale-105 transition shadow-lg active:bg-indigo-800 pointer-events-auto bg-indigo-600 text-white font-extrabold ${THEMES[id].fontClass}`;
-                b.textContent = THEMES[id].title;
-                b.onclick = (e) => { e.stopPropagation(); triggerHaptic(10); showStartSelection(id); };
-                btns.appendChild(b);
-            });
-        }
-
-        function showStartSelection(themeId) {
-            const btns = document.getElementById('difficulty-buttons');
-            const theme = THEMES[themeId];
-            document.getElementById('status-message').innerHTML = `<p class="text-3xl font-bold text-yellow-400 mb-2 uppercase italic text-center ${theme.fontClass}">${theme.title}</p><p class="text-gray-400 mb-8 max-w-xs mx-auto text-sm text-center italic font-bold tracking-widest">${theme.description}</p>`;
-            btns.innerHTML = '';
-            
-            // Single high-energy button to start
-            const b = document.createElement('button'); 
-            b.textContent = "GO!";
-            b.className = `bg-red-600 text-white font-black py-4 px-16 rounded-full m-2 uppercase hover:scale-110 active:opacity-80 pointer-events-auto w-48 shadow-2xl text-2xl tracking-widest font-brand`;
-            b.onclick = (e) => { e.stopPropagation(); triggerHaptic(20); startGame(themeId); };
-            btns.appendChild(b);
-
-            const back = document.createElement('button'); back.textContent = 'Back';
-            back.className = 'bg-gray-700 text-white font-bold py-2 px-4 rounded-full mt-8 block mx-auto text-[9px] pointer-events-auto uppercase tracking-widest opacity-50 hover:opacity-100 transition';
-            back.onclick = (e) => { e.stopPropagation(); triggerHaptic(5); showThemeSelection(); };
-            btns.appendChild(back);
-        }
-
         function handleInteraction(e) {
             if (isGameOver && !document.getElementById('initials-field')) return;
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const rect = document.getElementById('game-area').getBoundingClientRect();
             const h = getCurrentHitbox();
-            const imageLeft = (clientX - rect.left) - (h.xOffset + h.catchW / 2);
-            bucketX = Math.max(0 - h.xOffset, Math.min(imageLeft, GAME_AREA_WIDTH - (h.xOffset + h.catchW)));
+            
+            // Movement logic with sluggish gunk penalty
+            const moveSpeedMult = isGunked ? 0.35 : 1.0;
+            const targetX = (clientX - rect.left) - (h.xOffset + h.catchW / 2);
+            
+            const currentX = bucketX;
+            bucketX = currentX + (targetX - currentX) * moveSpeedMult;
+            bucketX = Math.max(0 - h.xOffset, Math.min(bucketX, GAME_AREA_WIDTH - (h.xOffset + h.catchW)));
+            
             const stack = document.getElementById('buckets-stack');
             if(stack) stack.style.left = bucketX + 'px';
             if (e.type === 'touchstart' || e.type === 'mousedown') {
@@ -619,7 +615,38 @@
             const el = document.getElementById('temp-message'); el.textContent = text;
             if (text === "") { el.style.opacity = 0; return; }
             el.className = `absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-4xl font-black p-3 rounded-lg z-20 transition-opacity duration-300 ${color} shadow-2xl text-center uppercase italic`;
-            el.style.opacity = 1; if (text === "OOPS!" || text === "GO!" || text.startsWith("LEVEL ")) setTimeout(() => el.style.opacity = 0, 1500);
+            el.style.opacity = 1; if (text === "OOPS!" || text === "GO!" || text.startsWith("LEVEL ") || text === "GUNKED!" || text === "CLEANED!") setTimeout(() => el.style.opacity = 0, 1500);
+        }
+
+        function showThemeSelection() {
+            const overlay = document.getElementById('overlay');
+            overlay.classList.remove('hidden'); overlay.style.opacity = 1;
+            const btns = document.getElementById('difficulty-buttons'); btns.innerHTML = '';
+            const status = document.getElementById('status-message');
+            status.innerHTML = `<p class="text-5xl font-black text-white mb-4 uppercase tracking-tighter italic text-center font-brand">CATCH-22</p><p class="text-xl mb-8 text-gray-300 font-medium text-center uppercase tracking-widest">Select Episode</p>`;
+            Object.keys(THEMES).forEach(id => {
+                const b = document.createElement('button');
+                b.className = `w-64 py-4 px-8 rounded-lg m-2 uppercase hover:scale-105 transition shadow-lg active:bg-indigo-800 pointer-events-auto bg-indigo-600 text-white font-extrabold ${THEMES[id].fontClass}`;
+                b.textContent = THEMES[id].title;
+                b.onclick = (e) => { e.stopPropagation(); triggerHaptic(10); showStartSelection(id); };
+                btns.appendChild(b);
+            });
+        }
+
+        function showStartSelection(themeId) {
+            const btns = document.getElementById('difficulty-buttons');
+            const theme = THEMES[themeId];
+            document.getElementById('status-message').innerHTML = `<p class="text-3xl font-bold text-yellow-400 mb-2 uppercase italic text-center ${theme.fontClass}">${theme.title}</p><p class="text-gray-400 mb-8 max-w-xs mx-auto text-sm text-center italic font-bold tracking-widest">${theme.description}</p>`;
+            btns.innerHTML = '';
+            const b = document.createElement('button'); 
+            b.textContent = "GO!";
+            b.className = `bg-red-600 text-white font-black py-4 px-16 rounded-full m-2 uppercase hover:scale-110 active:opacity-80 pointer-events-auto w-48 shadow-2xl text-2xl tracking-widest font-brand`;
+            b.onclick = (e) => { e.stopPropagation(); triggerHaptic(20); startGame(themeId); };
+            btns.appendChild(b);
+            const back = document.createElement('button'); back.textContent = 'Back';
+            back.className = 'bg-gray-700 text-white font-bold py-2 px-4 rounded-full mt-8 block mx-auto text-[9px] pointer-events-auto uppercase tracking-widest opacity-50 hover:opacity-100 transition';
+            back.onclick = (e) => { e.stopPropagation(); triggerHaptic(5); showThemeSelection(); };
+            btns.appendChild(back);
         }
 
         window.onload = () => { initFirebase(); showThemeSelection(); startHighscoreTicker();
@@ -642,7 +669,6 @@
                 <span class="text-[8px] text-gray-500 font-bold uppercase tracking-widest">1UP Score</span>
             </div>
             <div class="flex justify-between items-center px-4 pb-2">
-                <!-- LEFT -->
                 <div id="hi-score-container" class="flex flex-col min-w-[120px]">
                     <div class="flex items-baseline">
                         <span id="hi-initials" class="text-gray-400 font-bold text-[10px] tracking-tighter mr-1">---</span>
@@ -652,7 +678,6 @@
                         <span id="hi-theme-name">---</span> • <span id="hi-level-name">L1</span>
                     </div>
                 </div>
-                <!-- CENTER -->
                 <div id="center-header-area" class="flex-1 flex justify-center items-center px-2">
                     <div id="header-stats-play" class="hidden flex items-center h-8">
                         <div class="border-l border-gray-700 h-6 mx-2"></div>
@@ -677,7 +702,6 @@
                         </div>
                     </div>
                 </div>
-                <!-- RIGHT -->
                 <div id="score-display" class="text-green-400 font-black text-xl tracking-widest min-w-[100px] text-right leading-none">000000</div>
             </div>
         </div>
