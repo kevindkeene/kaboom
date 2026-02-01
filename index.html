@@ -68,10 +68,12 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: rgba(0, 0, 0, 0.95);
+            background: rgba(0, 0, 0, 0.96);
             backdrop-filter: blur(8px);
             z-index: 300;
             transition: opacity 0.3s;
+            padding: 20px;
+            box-sizing: border-box;
         }
 
         @keyframes recordPulse {
@@ -87,7 +89,7 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 12rem;
+            font-size: 10rem;
             font-weight: 900;
             color: rgba(255, 255, 255, 0.7);
             pointer-events: none;
@@ -105,6 +107,7 @@
             height: 40px;
             overflow: hidden;
             position: relative;
+            width: 100%;
         }
         
         .ticker-item {
@@ -173,11 +176,8 @@
                     SPLASH: 'https://kevindkeene.github.io/kaboom/assets/splash264x368.gif',
                     BACKGROUND: 'https://kevindkeene.github.io/kaboom/assets/kaboom-background.gif'
                 },
-                settings: {
-                    EASY: { baseBombSpeed: 2.0, initialDropInterval: 120, initialBomberSpeed: 1.2, twitchChance: 0.005 },
-                    MEDIUM: { baseBombSpeed: 2.5, initialDropInterval: 100, initialBomberSpeed: 1.8, twitchChance: 0.015 },
-                    HARD: { baseBombSpeed: 3.2, initialDropInterval: 70, initialBomberSpeed: 2.5, twitchChance: 0.03 }
-                }
+                // Hard mode is now the standard
+                settings: { baseBombSpeed: 3.2, initialDropInterval: 70, initialBomberSpeed: 2.5, twitchChance: 0.03 }
             },
             'alien-drop': {
                 title: 'Bale Out', id: 'alien-drop', isStacked: false, fontClass: 'font-bale-out',
@@ -204,18 +204,15 @@
                     SPLASH: 'https://kevindkeene.github.io/kaboom/assets/burst.gif',
                     BACKGROUND: 'https://kevindkeene.github.io/kaboom/assets/alien_background2.gif'
                 },
-                settings: {
-                    EASY: { baseBombSpeed: 2.5, initialDropInterval: 100, initialBomberSpeed: 1.8, twitchChance: 0.01 },
-                    MEDIUM: { baseBombSpeed: 3.0, initialDropInterval: 80, initialBomberSpeed: 2.3, twitchChance: 0.02 },
-                    HARD: { baseBombSpeed: 3.8, initialDropInterval: 60, initialBomberSpeed: 3.0, twitchChance: 0.04 }
-                }
+                // Hard mode is now the standard
+                settings: { baseBombSpeed: 3.8, initialDropInterval: 60, initialBomberSpeed: 3.0, twitchChance: 0.04 }
             }
         };
 
         let score = 0, lives = INITIAL_BUCKET_COUNT, globalHighscore = 0, level = 1;
         let isGameOver = true, isGamePaused = true, frame = 0;
         let bombs = [], bucketElements = [];
-        let currentThemeId = 'classic', currentDifficulty = 'MEDIUM';
+        let currentThemeId = 'classic';
         let bucketX = 0, madBomberX = 0, madBomberDirection = 1;
         let speedMultiplier = 1, madBomberSpeed = 1.5;
         let levelCatches = 0, totalCatchesNeeded = 15, bombsDroppedInAttempt = 0;
@@ -232,7 +229,7 @@
         function getCurrentHitbox() {
             const theme = THEMES[currentThemeId];
             if (theme.isStacked) return theme.hitbox;
-            return theme.hitboxByLife[Math.max(0, lives - 1)];
+            return theme.hitboxByLife[Math.max(0, lives - 1)] || theme.hitboxByLife[0];
         }
 
         async function initFirebase() {
@@ -293,15 +290,15 @@
             }, 3000);
         }
 
-        function startGame(themeId, diff) {
-            isGameOver = false; currentThemeId = themeId; currentDifficulty = diff;
+        function startGame(themeId) {
+            isGameOver = false; currentThemeId = themeId;
             const theme = THEMES[themeId];
             if (tickerInterval) clearInterval(tickerInterval);
             if (animationFrameHandle) cancelAnimationFrame(animationFrameHandle);
             
             score = 0; lives = INITIAL_BUCKET_COUNT; frame = 0; speedMultiplier = 1; level = 1;
             levelCatches = 0; totalCatchesNeeded = 15; bombsDroppedInAttempt = 0; isTransitioningLevel = false;
-            madBomberX = GAME_AREA_WIDTH / 2; madBomberSpeed = theme.settings[diff].initialBomberSpeed;
+            madBomberX = GAME_AREA_WIDTH / 2; madBomberSpeed = theme.settings.initialBomberSpeed;
             madBomberTargetX = null;
             bombs.forEach(b => { if(b.el) b.el.remove(); }); bombs = [];
             
@@ -337,25 +334,18 @@
                 for (let i = 0; i < lives; i++) {
                     const b = document.createElement('img');
                     b.src = theme.graphics.BUCKET; b.className = 'bucket-img pixel-art';
-                    b.onerror = () => { b.style.display='none'; stack.innerHTML += `<div class="text-2xl">${theme.emoji.bucket}</div>`; };
                     stack.appendChild(b); bucketElements.push(b);
                 }
             } else {
                 const b = document.createElement('img');
                 b.id = 'single-catcher-img'; b.className = 'bucket-img pixel-art';
                 b.src = theme.graphics.BUCKET_LAYERS[lives];
-                b.onerror = () => { b.style.display='none'; stack.innerHTML = `<div class="text-5xl">${theme.emoji.bucket}</div>`; };
                 stack.appendChild(b); bucketElements.push(b);
             }
             const h = theme.isStacked ? lives * (theme.bucketDim.h + theme.bucketDim.gap) : theme.bucketDim.h;
             stack.style.height = `${h}px`; stack.style.top = `${GAME_AREA_HEIGHT - h}px`;
 
-            // Reset Bomber Image
-            bomberEl.innerHTML = '';
-            const bImg = document.createElement('img');
-            bImg.src = theme.graphics.BOMBER; bImg.className = 'pixel-art w-full h-full';
-            bImg.onerror = () => { bImg.style.display='none'; bomberEl.innerHTML = `<span class="text-4xl">${theme.emoji.bomber}</span>`; };
-            bomberEl.appendChild(bImg);
+            bomberEl.innerHTML = `<img src="${theme.graphics.BOMBER}" class="pixel-art w-full h-full" onerror="this.style.display='none'; this.parentNode.innerHTML='<span class=\'text-4xl\'>${theme.emoji.bomber}</span>'">`;
             bomberEl.style.width = `${theme.bomberDim.w}px`; bomberEl.style.height = `${theme.bomberDim.h}px`;
             bomberEl.style.left = `${madBomberX}px`;
             
@@ -370,23 +360,21 @@
 
         function updateBomber() {
             const theme = THEMES[currentThemeId];
-            const settings = theme.settings[currentDifficulty];
-            const baseSpeed = madBomberSpeed * speedMultiplier;
+            const base = madBomberSpeed * speedMultiplier;
             if (madBomberTargetX !== null) {
-                const zipSpeed = baseSpeed * 4;
+                const zipSpeed = base * 4;
                 const dist = madBomberTargetX - madBomberX;
                 if (Math.abs(dist) < zipSpeed) { madBomberX = madBomberTargetX; madBomberTargetX = null; } 
                 else { madBomberX += Math.sign(dist) * zipSpeed; }
             } else {
-                if (Math.random() < (settings.twitchChance + (level * 0.005))) madBomberDirection *= -1;
-                madBomberX += madBomberDirection * baseSpeed;
+                if (Math.random() < (theme.settings.twitchChance + (level * 0.005))) madBomberDirection *= -1;
+                madBomberX += madBomberDirection * base;
                 if (madBomberX > (GAME_AREA_WIDTH - theme.bomberDim.w)) { madBomberDirection = -1; madBomberX = GAME_AREA_WIDTH - theme.bomberDim.w; } 
                 else if (madBomberX < 0) { madBomberDirection = 1; madBomberX = 0; }
             }
             document.getElementById('mad-bomber-img').style.left = `${madBomberX}px`;
-            madBomberSpeed = Math.min(settings.initialBomberSpeed + (Math.floor(score / 30) * 0.1), 8);
             if (bombsDroppedInAttempt < totalCatchesNeeded) {
-                const dropInt = Math.max(8, settings.initialDropInterval - (level * 5) - Math.floor(score / 15));
+                const dropInt = Math.max(8, theme.settings.initialDropInterval - (level * 5) - Math.floor(score / 15));
                 if (frame % Math.floor(dropInt) === 0) {
                     createBomb(madBomberX + (theme.bomberDim.w/2) - (theme.bombDim.w/2), theme.bomberDim.h);
                     bombsDroppedInAttempt++;
@@ -404,12 +392,9 @@
             el.className = 'bomb-img pixel-art absolute flex items-center justify-center';
             el.style.width = `${theme.bombDim.w}px`; el.style.height = `${theme.bombDim.h}px`;
             el.style.left = `${x}px`; el.style.top = `${y}px`;
-            const bImg = document.createElement('img');
-            bImg.src = theme.graphics.BOMB; bImg.className = 'w-full h-full';
-            bImg.onerror = () => { bImg.style.display='none'; el.innerHTML = `<span style="font-size: ${theme.bombDim.h}px">${theme.emoji.bomb}</span>`; };
-            el.appendChild(bImg);
+            el.innerHTML = `<img src="${theme.graphics.BOMB}" class="w-full h-full" onerror="this.style.display='none'; this.parentNode.innerHTML='<span style=\'font-size:${theme.bombDim.h}px\'>${theme.emoji.bomb}</span>'">`;
             document.getElementById('game-area').appendChild(el);
-            bombs.push({ x, y, el, speed: (theme.settings[currentDifficulty].baseBombSpeed + (level * 0.1)) * speedMultiplier });
+            bombs.push({ x, y, el, speed: (theme.settings.baseBombSpeed + (level * 0.1)) * speedMultiplier });
         }
 
         function updateBombs() {
@@ -441,14 +426,14 @@
             }
             if (score > record) {
                 const hi = document.getElementById('hi-score-container');
-                hi.classList.remove('pulse-active'); void hi.offsetWidth; hi.classList.add('pulse-active');
+                if (hi) { hi.classList.remove('pulse-active'); void hi.offsetWidth; hi.classList.add('pulse-active'); }
                 triggerHaptic(30); 
             }
             updateScoreDisplay(); triggerHaptic(20);
             createSplash(b.x + (THEMES[currentThemeId].bombDim.w / 2), topY);
             if (b.el) b.el.remove(); bombs.splice(idx, 1);
             if (score > 0 && score % 1000 === 0 && lives < INITIAL_BUCKET_COUNT) {
-                lives++; showTemporaryMessage("Extra Layer!", "text-green-400"); updateScoreDisplay();
+                lives++; showTemporaryMessage("Extra Life!", "text-green-400"); updateScoreDisplay();
             }
         }
 
@@ -482,7 +467,7 @@
             isGameOver = true; isGamePaused = true; triggerHaptic([200, 100, 200]);
             if (animationFrameHandle) cancelAnimationFrame(animationFrameHandle);
             if (score > (worldRecords[currentThemeId] || 0)) showInitialsEntry();
-            else finishEndGame();
+            else showThemeSelection(true);
         }
 
         function showInitialsEntry() {
@@ -492,7 +477,7 @@
             btns.innerHTML = `<div class="flex flex-col items-center">
                 <p class="text-xl text-green-400 font-bold mb-4 uppercase">New Record!</p>
                 <input type="text" id="initials-field" maxlength="3" class="initials-input" placeholder="---" autofocus>
-                <button id="submit-initials" class="bg-red-600 text-white font-black py-4 px-12 rounded shadow-2xl uppercase">Register</button>
+                <button id="submit-initials" class="bg-red-600 text-white font-black py-4 px-12 rounded shadow-2xl uppercase font-brand">Register</button>
             </div>`;
             document.getElementById('status-message').innerHTML = `<p class="text-5xl font-black text-white italic mb-4">ENTER INITIALS</p>`;
             document.getElementById('submit-initials').onclick = async (e) => {
@@ -559,13 +544,15 @@
             document.getElementById('lives-count').textContent = `×${lives}`;
             const stack = document.getElementById('buckets-stack');
             const theme = THEMES[currentThemeId];
-            if (theme.isStacked) {
-                const h = lives * (theme.bucketDim.h + theme.bucketDim.gap);
-                stack.style.height = `${h}px`; stack.style.top = `${GAME_AREA_HEIGHT - h}px`;
-                bucketElements.forEach((el, idx) => el.style.display = idx < lives ? 'block' : 'none');
-            } else {
-                stack.style.height = `${theme.bucketDim.h}px`; stack.style.top = `${GAME_AREA_HEIGHT - theme.bucketDim.h}px`;
-                const img = document.getElementById('single-catcher-img'); if (img) img.src = theme.graphics.BUCKET_LAYERS[lives];
+            if (theme && stack) {
+                if (theme.isStacked) {
+                    const h = lives * (theme.bucketDim.h + theme.bucketDim.gap);
+                    stack.style.height = h + 'px'; stack.style.top = (GAME_AREA_HEIGHT - h) + 'px';
+                    bucketElements.forEach((el, idx) => el.style.display = idx < lives ? 'block' : 'none');
+                } else {
+                    stack.style.height = theme.bucketDim.h + 'px'; stack.style.top = (GAME_AREA_HEIGHT - theme.bucketDim.h) + 'px';
+                    const img = document.getElementById('single-catcher-img'); if (img) img.src = theme.graphics.BUCKET_LAYERS[lives];
+                }
             }
         }
 
@@ -580,25 +567,26 @@
                 const b = document.createElement('button');
                 b.className = `w-64 py-4 px-8 rounded-lg m-2 uppercase hover:scale-105 transition shadow-lg active:bg-indigo-800 pointer-events-auto bg-indigo-600 text-white font-extrabold ${THEMES[id].fontClass}`;
                 b.textContent = THEMES[id].title;
-                b.onclick = (e) => { e.stopPropagation(); triggerHaptic(10); showDifficultySelection(id); };
+                b.onclick = (e) => { e.stopPropagation(); triggerHaptic(10); showStartSelection(id); };
                 btns.appendChild(b);
             });
         }
 
-        function showDifficultySelection(themeId) {
+        function showStartSelection(themeId) {
             const btns = document.getElementById('difficulty-buttons');
             const theme = THEMES[themeId];
             document.getElementById('status-message').innerHTML = `<p class="text-3xl font-bold text-yellow-400 mb-2 uppercase italic text-center ${theme.fontClass}">${theme.title}</p><p class="text-gray-400 mb-8 max-w-xs mx-auto text-sm text-center italic font-bold tracking-widest">${theme.description}</p>`;
             btns.innerHTML = '';
-            ['EASY', 'MEDIUM', 'HARD'].forEach(l => {
-                const b = document.createElement('button'); b.textContent = l;
-                const colors = { EASY: 'bg-green-600', MEDIUM: 'bg-yellow-600', HARD: 'bg-red-600' };
-                b.className = `${colors[l]} text-white font-extrabold py-3 px-8 rounded-full m-2 uppercase hover:scale-105 active:opacity-80 pointer-events-auto w-32 shadow-md`;
-                b.onclick = (e) => { e.stopPropagation(); triggerHaptic(20); startGame(themeId, l); };
-                btns.appendChild(b);
-            });
+            
+            // Single high-energy button to start
+            const b = document.createElement('button'); 
+            b.textContent = "GO!";
+            b.className = `bg-red-600 text-white font-black py-4 px-16 rounded-full m-2 uppercase hover:scale-110 active:opacity-80 pointer-events-auto w-48 shadow-2xl text-2xl tracking-widest font-brand`;
+            b.onclick = (e) => { e.stopPropagation(); triggerHaptic(20); startGame(themeId); };
+            btns.appendChild(b);
+
             const back = document.createElement('button'); back.textContent = 'Back';
-            back.className = 'bg-gray-700 text-white font-bold py-2 px-4 rounded-full mt-8 block mx-auto text-[9px] pointer-events-auto uppercase tracking-widest';
+            back.className = 'bg-gray-700 text-white font-bold py-2 px-4 rounded-full mt-8 block mx-auto text-[9px] pointer-events-auto uppercase tracking-widest opacity-50 hover:opacity-100 transition';
             back.onclick = (e) => { e.stopPropagation(); triggerHaptic(5); showThemeSelection(); };
             btns.appendChild(back);
         }
@@ -607,9 +595,11 @@
             if (isGameOver && !document.getElementById('initials-field')) return;
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const rect = document.getElementById('game-area').getBoundingClientRect();
-            const imageLeft = (clientX - rect.left) - (getCurrentHitbox().xOffset + getCurrentHitbox().catchW / 2);
-            bucketX = Math.max(0 - getCurrentHitbox().xOffset, Math.min(imageLeft, GAME_AREA_WIDTH - (getCurrentHitbox().xOffset + getCurrentHitbox().catchW)));
-            document.getElementById('buckets-stack').style.left = `${bucketX}px`;
+            const h = getCurrentHitbox();
+            const imageLeft = (clientX - rect.left) - (h.xOffset + h.catchW / 2);
+            bucketX = Math.max(0 - h.xOffset, Math.min(imageLeft, GAME_AREA_WIDTH - (h.xOffset + h.catchW)));
+            const stack = document.getElementById('buckets-stack');
+            if(stack) stack.style.left = bucketX + 'px';
             if (e.type === 'touchstart' || e.type === 'mousedown') {
                 const now = Date.now();
                 if (isGamePaused && !isGameOver && !document.getElementById('initials-field')) resume();
@@ -629,7 +619,7 @@
             const el = document.getElementById('temp-message'); el.textContent = text;
             if (text === "") { el.style.opacity = 0; return; }
             el.className = `absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-4xl font-black p-3 rounded-lg z-20 transition-opacity duration-300 ${color} shadow-2xl text-center uppercase italic`;
-            el.style.opacity = 1; if (text === "OOPS!" || text === "GO!" || text === "LEVEL COMPLETE!" || text.startsWith("LEVEL ")) setTimeout(() => el.style.opacity = 0, 1500);
+            el.style.opacity = 1; if (text === "OOPS!" || text === "GO!" || text.startsWith("LEVEL ")) setTimeout(() => el.style.opacity = 0, 1500);
         }
 
         window.onload = () => { initFirebase(); showThemeSelection(); startHighscoreTicker();
@@ -648,7 +638,7 @@
         <div class="w-full max-w-[400px] bg-gradient-to-b from-gray-800 to-black rounded-t-lg shadow-2xl border-b-4 border-yellow-500 font-mono overflow-hidden">
             <div class="flex justify-between px-4 pt-1">
                 <span id="hi-label" class="text-[8px] text-gray-500 font-bold uppercase tracking-widest">Catch King</span>
-                <span id="center-label" class="text-[8px] text-gray-500 font-bold uppercase tracking-widest">Level</span>
+                <span class="text-[8px] text-gray-500 font-bold uppercase tracking-widest">Level</span>
                 <span class="text-[8px] text-gray-500 font-bold uppercase tracking-widest">1UP Score</span>
             </div>
             <div class="flex justify-between items-center px-4 pb-2">
@@ -682,7 +672,7 @@
                     </div>
                     <div id="header-stats-menu" class="ticker-container w-full">
                         <div id="ticker-inner" class="ticker-item">
-                            <span id="ticker-theme-name" class="text-[7px] text-gray-500 font-bold uppercase tracking-tighter leading-none mb-1 text-center">---</span>
+                            <span id="ticker-theme-name" class="text-[7px] text-gray-500 font-bold uppercase tracking-tighter leading-none mb-1 text-center font-bold">---</span>
                             <span id="ticker-theme-score" class="text-white font-bold text-[11px] leading-none text-center">--- - 000000 L1</span>
                         </div>
                     </div>
@@ -697,7 +687,10 @@
             <div id="buckets-stack" class="bucket-stack"></div>
             <div id="temp-message" class="transition-opacity duration-300 opacity-0 pointer-events-none text-center"></div>
             <div id="overlay" class="game-status-overlay">
-                <div class="text-center p-6"><div id="status-message" class="mb-8 font-brand"></div><div id="difficulty-buttons" class="flex flex-wrap justify-center items-center"></div></div>
+                <div class="text-center w-full">
+                    <div id="status-message" class="mb-8 font-brand"></div>
+                    <div id="difficulty-buttons" class="flex flex-wrap justify-center items-center"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -707,4 +700,5 @@
     </div>
 </body>
 </html>
+
 
