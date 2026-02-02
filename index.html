@@ -24,12 +24,18 @@
             margin: auto;
             touch-action: none; 
             cursor: crosshair;
-            transition: filter 0.3s;
         }
 
-        /* Slime Visual Penalty */
-        #game-area.gunked {
-            filter: sepia(1) saturate(3) hue-rotate(90deg);
+        /* The Slime Overlay Layer */
+        #gunk-overlay {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background-color: #22c55e; /* Tailwind green-500 */
+            pointer-events: none;
+            z-index: 150;
+            opacity: 0;
+            transition: opacity 0.1s linear;
         }
 
         /* Slimeball Pulsing Glow */
@@ -43,47 +49,33 @@
         }
 
         #game-area.hide-pointer { cursor: none !important; }
-
-        .pixel-art {
-            image-rendering: pixelated;
-            image-rendering: crisp-edges;
-        }
+        .pixel-art { image-rendering: pixelated; image-rendering: crisp-edges; }
 
         .mad-bomber-img {
             position: absolute;
-            top: 0;
-            left: 0;
+            top: 0; left: 0;
             z-index: 100;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; align-items: center; justify-content: center;
         }
 
         .bucket-stack {
             position: absolute;
-            display: flex;
-            flex-direction: column-reverse; 
-            align-items: center;
-            justify-content: flex-start;
+            display: flex; flex-direction: column-reverse; 
+            align-items: center; justify-content: flex-start;
             z-index: 90;
             transition: top 0.2s ease-out;
         }
 
         .bucket-img { object-fit: contain; width: 100%; height: 100%; }
-
-        .bomb-img { position: absolute; z-index: 50; transition: opacity 0.1s; }
+        .bomb-img { position: absolute; z-index: 50; }
         .splash-img { position: absolute; z-index: 250; pointer-events: none; }
         .explosion-img { position: absolute; z-index: 200; pointer-events: none; }
 
         .game-status-overlay {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
             background: rgba(0, 0, 0, 0.96);
             backdrop-filter: blur(8px);
             z-index: 300;
@@ -97,19 +89,15 @@
             30% { transform: scale(1.1); text-shadow: 0 0 15px gold, 0 0 5px gold; }
             100% { transform: scale(1); text-shadow: 0 0 0px gold; }
         }
-
         .pulse-active { animation: recordPulse 0.3s ease-out; display: inline-block; }
 
         .countdown-number {
             position: absolute;
-            top: 50%;
-            left: 50%;
+            top: 50%; left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 10rem;
-            font-weight: 900;
+            font-size: 10rem; font-weight: 900;
             color: rgba(255, 255, 255, 0.7);
-            pointer-events: none;
-            z-index: 150;
+            pointer-events: none; z-index: 150;
             line-height: 1;
             animation: countdownScaleFade 0.4s ease-out forwards;
         }
@@ -119,50 +107,21 @@
             100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0; }
         }
 
-        .ticker-container {
-            height: 40px;
-            overflow: hidden;
-            position: relative;
-            width: 100%;
-        }
-        
-        .ticker-item {
-            height: 40px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-        }
+        .ticker-container { height: 40px; overflow: hidden; position: relative; width: 100%; }
+        .ticker-item { height: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
 
         .initials-input {
-            background: #000;
-            border: 4px solid #ef4444;
-            color: #ef4444;
-            font-family: monospace;
-            font-size: 3rem;
-            font-weight: 900;
-            text-align: center;
-            width: 220px;
-            padding: 10px;
-            text-transform: uppercase;
-            letter-spacing: 10px;
-            outline: none;
-            margin-bottom: 20px;
+            background: #000; border: 4px solid #ef4444; color: #ef4444;
+            font-family: monospace; font-size: 3rem; font-weight: 900;
+            text-align: center; width: 220px; padding: 10px;
+            text-transform: uppercase; letter-spacing: 10px; outline: none; margin-bottom: 20px;
         }
 
-        /* Typography Classes */
         .font-short-fuse { font-family: 'Black Ops One', cursive; }
         .font-bale-out { font-family: 'Titan One', cursive; }
         .font-brand { font-family: 'Bungee', cursive; }
 
-        #preload-cache {
-            position: absolute;
-            width: 0; height: 0;
-            overflow: hidden;
-            opacity: 0;
-            pointer-events: none;
-        }
+        #preload-cache { position: absolute; width: 0; height: 0; overflow: hidden; opacity: 0; pointer-events: none; }
     </style>
     
     <script type="module">
@@ -198,7 +157,7 @@
                 title: 'Bale Out', id: 'alien-drop', isStacked: false, fontClass: 'font-bale-out',
                 description: 'CATCH FALLING COWS WITH YOUR TRACTOR BALE!',
                 bomberDim: { w: 50, h: 50 }, bombDim: { w: 32, h: 26 }, 
-                slimeDim: { w: 19, h: 16 }, // Middle ground size
+                slimeDim: { w: 19, h: 16 }, 
                 bucketDim: { w: 220, h: 80, gap: 0 }, splashDim: { w: 80, h: 80 },
                 explosionDim: { w: 80, h: 80 }, catchDuration: 900, missDuration: 1240,
                 hitboxByLife: [
@@ -225,6 +184,7 @@
             }
         };
 
+        // --- CORE STATE ---
         let score = 0, lives = INITIAL_BUCKET_COUNT, globalHighscore = 0, level = 1;
         let isGameOver = true, isGamePaused = true, frame = 0;
         let bombs = [], bucketElements = [];
@@ -236,8 +196,8 @@
         let worldInitials = { 'classic': '---', 'alien-drop': '---' };
         let worldLevels = { 'classic': 1, 'alien-drop': 1 }; 
         
-        let isGunked = false; 
-        let gunkTimeout = null;
+        let gunkTimeRemaining = 0; // ms
+        const BASE_GUNK_TIME = 4000;
 
         let tickerIndex = 0, tickerInterval;
         let db, auth, userId, globalScoresRef, animationFrameHandle;
@@ -252,9 +212,9 @@
 
         async function initFirebase() {
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'catch-22-arcade';
-            const firebaseConfigString = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
-            if (!firebaseConfigString) return;
-            const app = initializeApp(JSON.parse(firebaseConfigString));
+            const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
+            if (!configStr) return;
+            const app = initializeApp(JSON.parse(configStr));
             db = getFirestore(app); auth = getAuth(app);
             try { await signInAnonymously(auth); } catch (e) {}
             onAuthStateChanged(auth, (u) => {
@@ -269,8 +229,6 @@
                                 worldInitials[id] = data[id + '_initials'] || '---';
                                 worldLevels[id] = data[id + '_level'] || 1;
                             });
-                            const numericScores = Object.values(worldRecords).filter(val => typeof val === 'number');
-                            globalHighscore = numericScores.length > 0 ? Math.max(...numericScores) : 0;
                             updateScoreDisplay();
                         }
                     });
@@ -319,8 +277,8 @@
             madBomberTargetX = null;
             bombs.forEach(b => { if(b.el) b.el.remove(); }); bombs = [];
             
-            isGunked = false; document.getElementById('game-area').classList.remove('gunked');
-            if(gunkTimeout) clearTimeout(gunkTimeout);
+            gunkTimeRemaining = 0;
+            document.getElementById('gunk-overlay').style.opacity = 0;
 
             initGameElements();
             updateScoreDisplay();
@@ -364,7 +322,18 @@
 
         function gameLoop() {
             if (isGameOver || isGamePaused) return;
-            frame++; updateBomber(); updateBombs();
+            frame++; 
+            
+            // Handle Slime Fade-out
+            if (gunkTimeRemaining > 0) {
+                gunkTimeRemaining -= 16.6; // Logic for ~60fps
+                if (gunkTimeRemaining < 0) gunkTimeRemaining = 0;
+                // Fade opacity based on time left
+                const intensity = (gunkTimeRemaining / BASE_GUNK_TIME);
+                document.getElementById('gunk-overlay').style.opacity = intensity * 0.5; // Max 0.5 opacity
+            }
+
+            updateBomber(); updateBombs();
             animationFrameHandle = requestAnimationFrame(gameLoop);
         }
 
@@ -401,7 +370,6 @@
             const theme = THEMES[currentThemeId];
             const el = document.createElement('div');
             
-            // Set dimensions and radioactive glow for slime
             const dim = (type === 'slime') ? theme.slimeDim : theme.bombDim;
             el.className = 'bomb-img pixel-art absolute flex items-center justify-center' + (type === 'slime' ? ' slime-glow' : '');
             el.style.width = `${dim.w}px`; el.style.height = `${dim.h}px`;
@@ -469,16 +437,9 @@
         }
 
         function applyGunkPenalty() {
-            if (gunkTimeout) clearTimeout(gunkTimeout);
-            isGunked = true;
-            document.getElementById('game-area').classList.add('gunked');
+            gunkTimeRemaining = BASE_GUNK_TIME;
             showTemporaryMessage("GUNKED!", "text-green-500");
             triggerHaptic([200, 100, 200]);
-            gunkTimeout = setTimeout(() => {
-                isGunked = false;
-                document.getElementById('game-area').classList.remove('gunked');
-                showTemporaryMessage("CLEANED!", "text-blue-400");
-            }, 4000);
         }
 
         function handleMiss(idx, b) {
@@ -602,9 +563,10 @@
             const rect = document.getElementById('game-area').getBoundingClientRect();
             const h = getCurrentHitbox();
             
-            // Movement logic
-            const imageLeft = (clientX - rect.left) - (h.xOffset + h.catchW / 2);
-            bucketX = Math.max(0 - h.xOffset, Math.min(imageLeft, GAME_AREA_WIDTH - (h.xOffset + h.catchW)));
+            const targetX = (clientX - rect.left) - (h.xOffset + h.catchW / 2);
+            // Physics movement remains simple and stable
+            bucketX = bucketX + (targetX - bucketX) * (gunkTimeRemaining > 0 ? 0.08 : 1.0);
+            bucketX = Math.max(0 - h.xOffset, Math.min(bucketX, GAME_AREA_WIDTH - (h.xOffset + h.catchW)));
             
             const stack = document.getElementById('buckets-stack');
             if(stack) stack.style.left = bucketX + 'px';
@@ -627,7 +589,7 @@
             const el = document.getElementById('temp-message'); el.textContent = text;
             if (text === "") { el.style.opacity = 0; return; }
             el.className = `absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-4xl font-black p-3 rounded-lg z-20 transition-opacity duration-300 ${color} shadow-2xl text-center uppercase italic`;
-            el.style.opacity = 1; if (text === "OOPS!" || text === "GO!" || text.startsWith("LEVEL ") || text === "GUNKED!" || text === "CLEANED!") setTimeout(() => el.style.opacity = 0, 1500);
+            el.style.opacity = 1; if (text === "OOPS!" || text === "GO!" || text.startsWith("LEVEL ") || text === "GUNKED!") setTimeout(() => el.style.opacity = 0, 1500);
         }
 
         function showThemeSelection(isOver = false) {
@@ -720,6 +682,7 @@
         </div>
 
         <div id="game-area" class="w-full h-[600px] max-w-[400px] rounded-b-lg relative shadow-2xl border-x-2 border-b-2 border-gray-800">
+            <div id="gunk-overlay"></div>
             <div id="mad-bomber-img" class="mad-bomber-img" style="display: none;"></div>
             <div id="buckets-stack" class="bucket-stack"></div>
             <div id="temp-message" class="transition-opacity duration-300 opacity-0 pointer-events-none text-center"></div>
@@ -737,5 +700,4 @@
     </div>
 </body>
 </html>
-
 
