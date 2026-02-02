@@ -32,6 +32,16 @@
             filter: sepia(1) saturate(3) hue-rotate(90deg);
         }
 
+        /* Slimeball Pulsing Glow */
+        @keyframes slime-pulse {
+            0% { filter: drop-shadow(0 0 2px #22c55e); }
+            50% { filter: drop-shadow(0 0 10px #22c55e); }
+            100% { filter: drop-shadow(0 0 2px #22c55e); }
+        }
+        .slime-glow {
+            animation: slime-pulse 1s infinite ease-in-out;
+        }
+
         #game-area.hide-pointer { cursor: none !important; }
 
         .pixel-art {
@@ -61,7 +71,7 @@
 
         .bucket-img { object-fit: contain; width: 100%; height: 100%; }
 
-        .bomb-img { position: absolute; z-index: 50; }
+        .bomb-img { position: absolute; z-index: 50; transition: opacity 0.1s; }
         .splash-img { position: absolute; z-index: 250; pointer-events: none; }
         .explosion-img { position: absolute; z-index: 200; pointer-events: none; }
 
@@ -188,6 +198,7 @@
                 title: 'Bale Out', id: 'alien-drop', isStacked: false, fontClass: 'font-bale-out',
                 description: 'CATCH FALLING COWS WITH YOUR TRACTOR BALE!',
                 bomberDim: { w: 50, h: 50 }, bombDim: { w: 32, h: 26 }, 
+                slimeDim: { w: 19, h: 16 }, // Middle ground size
                 bucketDim: { w: 220, h: 80, gap: 0 }, splashDim: { w: 80, h: 80 },
                 explosionDim: { w: 80, h: 80 }, catchDuration: 900, missDuration: 1240,
                 hitboxByLife: [
@@ -199,7 +210,7 @@
                 graphics: {
                     BOMBER: 'https://kevindkeene.github.io/kaboom/assets/ufo2-400x400.gif', 
                     BOMB: 'https://kevindkeene.github.io/kaboom/assets/cow3.gif', 
-                    SLIME: 'https://kevindkeene.github.io/kaboom/assets/slimeball.gif', // Correct Slime URL
+                    SLIME: 'https://kevindkeene.github.io/kaboom/assets/slimeball.gif',
                     BUCKET_LAYERS: [
                         'https://kevindkeene.github.io/kaboom/assets/tractor-0hay.gif',
                         'https://kevindkeene.github.io/kaboom/assets/tractor-1hay.gif',
@@ -389,11 +400,16 @@
         function createBomb(x, y, type = 'good') {
             const theme = THEMES[currentThemeId];
             const el = document.createElement('div');
-            el.className = 'bomb-img pixel-art absolute flex items-center justify-center';
-            el.style.width = `${theme.bombDim.w}px`; el.style.height = `${theme.bombDim.h}px`;
+            
+            // Set dimensions and radioactive glow for slime
+            const dim = (type === 'slime') ? theme.slimeDim : theme.bombDim;
+            el.className = 'bomb-img pixel-art absolute flex items-center justify-center' + (type === 'slime' ? ' slime-glow' : '');
+            el.style.width = `${dim.w}px`; el.style.height = `${dim.h}px`;
             el.style.left = `${x}px`; el.style.top = `${y}px`;
+            
             const imgUrl = (type === 'slime') ? theme.graphics.SLIME : theme.graphics.BOMB;
-            el.innerHTML = `<img src="${imgUrl}" class="w-full h-full" onerror="this.style.display='none'; this.parentNode.innerHTML='<span style=\'font-size:${theme.bombDim.h}px\'>🤮</span>'">`;
+            el.innerHTML = `<img src="${imgUrl}" class="w-full h-full" onerror="this.style.display='none'; this.parentNode.innerHTML='<span style=\'font-size:${dim.h}px\'>🤮</span>'">`;
+            
             document.getElementById('game-area').appendChild(el);
             bombs.push({ x, y, el, type, speed: (theme.settings.baseBombSpeed + (level * 0.1)) * speedMultiplier });
         }
@@ -453,7 +469,7 @@
         }
 
         function applyGunkPenalty() {
-            if (isGunked) clearTimeout(gunkTimeout);
+            if (gunkTimeout) clearTimeout(gunkTimeout);
             isGunked = true;
             document.getElementById('game-area').classList.add('gunked');
             showTemporaryMessage("GUNKED!", "text-green-500");
@@ -586,13 +602,9 @@
             const rect = document.getElementById('game-area').getBoundingClientRect();
             const h = getCurrentHitbox();
             
-            // Movement logic with sluggish gunk penalty
-            const moveSpeedMult = isGunked ? 0.35 : 1.0;
-            const targetX = (clientX - rect.left) - (h.xOffset + h.catchW / 2);
-            
-            const currentX = bucketX;
-            bucketX = currentX + (targetX - currentX) * moveSpeedMult;
-            bucketX = Math.max(0 - h.xOffset, Math.min(bucketX, GAME_AREA_WIDTH - (h.xOffset + h.catchW)));
+            // Movement logic
+            const imageLeft = (clientX - rect.left) - (h.xOffset + h.catchW / 2);
+            bucketX = Math.max(0 - h.xOffset, Math.min(imageLeft, GAME_AREA_WIDTH - (h.xOffset + h.catchW)));
             
             const stack = document.getElementById('buckets-stack');
             if(stack) stack.style.left = bucketX + 'px';
@@ -618,12 +630,13 @@
             el.style.opacity = 1; if (text === "OOPS!" || text === "GO!" || text.startsWith("LEVEL ") || text === "GUNKED!" || text === "CLEANED!") setTimeout(() => el.style.opacity = 0, 1500);
         }
 
-        function showThemeSelection() {
+        function showThemeSelection(isOver = false) {
             const overlay = document.getElementById('overlay');
             overlay.classList.remove('hidden'); overlay.style.opacity = 1;
             const btns = document.getElementById('difficulty-buttons'); btns.innerHTML = '';
             const status = document.getElementById('status-message');
-            status.innerHTML = `<p class="text-5xl font-black text-white mb-4 uppercase tracking-tighter italic text-center font-brand">CATCH-22</p><p class="text-xl mb-8 text-gray-300 font-medium text-center uppercase tracking-widest">Select Episode</p>`;
+            if (isOver) status.innerHTML = `<p class="text-4xl font-extrabold text-red-500 mb-4 uppercase italic text-center font-brand">Game Over</p><p class="text-xl mb-2 text-gray-300 text-center font-bold">Score: ${score.toString().padStart(6, '0')}</p><p class="text-lg mb-8 text-gray-400 font-mono text-sm text-center font-bold">Level ${level}</p>`;
+            else status.innerHTML = `<p class="text-5xl font-black text-white mb-4 uppercase tracking-tighter italic text-center font-brand">CATCH-22</p><p class="text-xl mb-8 text-gray-300 font-medium text-center uppercase tracking-widest">Select Episode</p>`;
             Object.keys(THEMES).forEach(id => {
                 const b = document.createElement('button');
                 b.className = `w-64 py-4 px-8 rounded-lg m-2 uppercase hover:scale-105 transition shadow-lg active:bg-indigo-800 pointer-events-auto bg-indigo-600 text-white font-extrabold ${THEMES[id].fontClass}`;
@@ -636,7 +649,7 @@
         function showStartSelection(themeId) {
             const btns = document.getElementById('difficulty-buttons');
             const theme = THEMES[themeId];
-            document.getElementById('status-message').innerHTML = `<p class="text-3xl font-bold text-yellow-400 mb-2 uppercase italic text-center ${theme.fontClass}">${theme.title}</p><p class="text-gray-400 mb-8 max-w-xs mx-auto text-sm text-center italic font-bold tracking-widest">${theme.description}</p>`;
+            document.getElementById('status-message').innerHTML = `<p class="text-3xl font-bold text-yellow-400 mb-2 uppercase italic text-center ${theme.fontClass}">${theme.title}</p><p class="text-gray-400 mb-8 max-w-xs mx-auto text-sm text-center font-bold tracking-widest leading-tight">${theme.description}</p>`;
             btns.innerHTML = '';
             const b = document.createElement('button'); 
             b.textContent = "GO!";
@@ -712,7 +725,7 @@
             <div id="temp-message" class="transition-opacity duration-300 opacity-0 pointer-events-none text-center"></div>
             <div id="overlay" class="game-status-overlay">
                 <div class="text-center w-full">
-                    <div id="status-message" class="mb-8 font-brand"></div>
+                    <div id="status-message" class="mb-8 font-brand text-center"></div>
                     <div id="difficulty-buttons" class="flex flex-wrap justify-center items-center"></div>
                 </div>
             </div>
